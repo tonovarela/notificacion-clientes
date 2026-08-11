@@ -29,19 +29,20 @@ namespace notificacion_clientes
             reporte.Imprimir(notificaciones);
 
             // Con --previsualizar se genera el HTML en disco y no se envía nada: sirve para revisar la plantilla.
-            // if (args.Contains("--previsualizar"))
-            // {
-            //     foreach (var notificacion in notificaciones)
-            //     {
-            //         var ruta = Path.Combine(AppContext.BaseDirectory, $"previsualizacion-{notificacion.Cliente}.html");
-            //         await File.WriteAllTextAsync(ruta, plantillaService.Renderizar(notificacion));
-            //         Console.WriteLine($"Previsualización: {ruta}");
-            //     }
-            //     return;
-            // }
+            if (args.Contains("--previsualizar"))
+            {
+                foreach (var notificacion in notificaciones)
+                {
+                    var ruta = Path.Combine(AppContext.BaseDirectory, $"previsualizacion-{notificacion.Cliente}.html");
+                    await File.WriteAllTextAsync(ruta, plantillaService.Renderizar(notificacion));
+                    Console.WriteLine($"Previsualización: {ruta}");
+                }
+                return;
+            }
 
             Console.WriteLine();
             Console.WriteLine("Enviando correos...");
+            
             var resultados = await correoService.Enviar(notificaciones);
 
             reporte.ImprimirEnvios(resultados, settings.Smtp.ModoPrueba);

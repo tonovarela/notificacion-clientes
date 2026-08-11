@@ -7,17 +7,18 @@
   <meta name="supported-color-schemes" content="light">
   <title>Facturas del día</title>
   <style>
-    /* El logo es tinta oscura sobre transparente: si el cliente de correo invierte
-       los colores en modo oscuro, se pierde. Aquí se fuerza el fondo blanco. */
+    /* El logo es texto blanco sobre transparente: solo se lee sobre la franja azul.
+       Si el cliente de correo invierte los colores en modo oscuro la franja se
+       aclara y el logo desaparece, así que aquí se fuerza el azul de marca. */
     :root { color-scheme: light; supported-color-schemes: light; }
 
     @media (prefers-color-scheme: dark) {
-      .franja-logo { background-color: #ffffff !important; }
+      .franja-logo { background-color: #004CA3 !important; }
     }
 
     /* Outlook aplica estos atributos al invertir el tema. */
     [data-ogsc] .franja-logo,
-    [data-ogsb] .franja-logo { background-color: #ffffff !important; }
+    [data-ogsb] .franja-logo { background-color: #004CA3 !important; }
   </style>
 </head>
 <body style="margin:0; padding:0; background-color:#f4f5f7; font-family:Arial, Helvetica, sans-serif; color:#1f2933;">
@@ -27,8 +28,8 @@
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px; background-color:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #e4e7eb;">
 
           <tr>
-            <td class="franja-logo" bgcolor="#ffffff" style="background-color:#ffffff; padding:12px 18px 8px;">
-              <img src="cid:logo" alt="Litoprocess" width="228" height="63"
+            <td class="franja-logo" bgcolor="#004CA3" style="background-color:#004CA3; padding:18px 24px;">
+              <img src="cid:logo" alt="Litoprocess" width="228" height="44"
                    style="display:block; border:0; outline:none; text-decoration:none; width:228px; height:auto; max-width:100%;">
             </td>
           </tr>
