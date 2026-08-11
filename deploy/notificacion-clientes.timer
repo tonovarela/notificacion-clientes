@@ -1,0 +1,28 @@
+[Unit]
+Description=Dispara la notificación de facturas a clientes de lunes a viernes
+Documentation=file:/opt/notificacion-clientes/DESPLIEGUE.md
+
+[Timer]
+Unit=notificacion-clientes.service
+
+# Lunes a viernes a las 19:00. Ajusta el horario a cuando ya estén concluidas las facturas del día.
+OnCalendar=Mon..Fri 19:00
+
+# La zona horaria es explícita porque la consulta filtra por la fecha del día: en un servidor en UTC
+# sin esta línea la corrida de las 19:00 caería a las 13:00 hora de México, o peor, cruzaría de día.
+# Requiere systemd 246 o superior (verifica con: systemctl --version).
+Timezone=America/Mexico_City
+
+# Si el servidor estaba apagado a la hora programada, la corrida se ejecuta al encender.
+# Recupera UNA sola corrida, no una por cada día perdido, así que no genera correos duplicados.
+# Ponlo en false si prefieres que una corrida perdida simplemente se pierda y se revise a mano.
+Persistent=true
+
+# Desfase aleatorio para no arrancar exactamente junto con otros jobs del servidor.
+RandomizedDelaySec=2min
+
+# Sin efecto de "despertar" al servidor si está suspendido.
+WakeSystem=false
+
+[Install]
+WantedBy=timers.target
