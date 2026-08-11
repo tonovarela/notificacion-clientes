@@ -1,0 +1,19 @@
+services:
+  notificacion-clientes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: notificacion-clientes:latest
+    container_name: notificacion-clientes
+    # Toda la configuración viene de variables de entorno con el formato de .NET:
+    # ':' se escribe como '__' (Smtp:Host -> Smtp__Host). Copia .env.example a .env.
+    env_file:
+      - .env
+    # La bitácora de cada corrida queda en ./logs del host, fuera del contenedor.
+    volumes:
+      - ./logs:/app/Logs
+    # Es un proceso de una sola pasada: corre, notifica y termina.
+    restart: "no"
+    # El SQL Server y la API viven en la LAN, así que el contenedor sale por la red del host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

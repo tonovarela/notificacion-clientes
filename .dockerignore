@@ -1,0 +1,33 @@
+# Salida de compilación local (se compila dentro de la imagen)
+bin/
+obj/
+publish/
+
+# Configuración con credenciales: dentro del contenedor todo llega por variables de entorno
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
+.env
+.env.*
+
+# Control de versiones y editores
+.git/
+.gitignore
+.claude/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+
+# Artefactos y documentación que no hacen falta en la imagen
+previsualizacion-*.html
+logs/
+Logs/
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+README.md
+.DS_Store

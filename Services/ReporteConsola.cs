@@ -43,6 +43,9 @@ namespace notificacion_clientes.Services
                 Console.WriteLine(resultado.Enviado
                     ? $"Enviado a {resultado.Cliente}: {string.Join(", ", resultado.Destinatarios)}"
                     : $"FALLÓ {resultado.Cliente}: {resultado.Error}");
+
+                if (resultado.CopiaOculta.Count > 0)
+                    Console.WriteLine($"  CCO: {string.Join(", ", resultado.CopiaOculta)}");
             }
         }
 

@@ -3,6 +3,11 @@ appsettings.json
 appsettings.*.json
 !appsettings.example.json
 
+# Variables de entorno para Docker (usar .env.example como base)
+.env
+.env.*
+!.env.example
+
 # Salida de compilación
 bin/
 obj/
@@ -14,6 +19,10 @@ publish/
 
 # Previsualizaciones generadas por --previsualizar
 previsualizacion-*.html
+
+# Bitácoras de ejecución
+logs/
+Logs/
 
 # Herramientas y editores
 .claude/

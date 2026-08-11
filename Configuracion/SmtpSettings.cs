@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Extensions.Configuration;
 
 namespace notificacion_clientes.Configuracion
@@ -27,6 +29,12 @@ namespace notificacion_clientes.Configuracion
 
         public string? CorreoPrueba { get; init; }
 
+        /// <summary>
+        /// Direcciones que reciben copia oculta de cada correo, normalmente el buzón que archiva
+        /// la facturación. El cliente no las ve. Vacío si no se configuró ninguna.
+        /// </summary>
+        public IReadOnlyList<string> CopiaOculta { get; init; } = Array.Empty<string>();
+
         public static SmtpSettings Cargar(IConfiguration configuracion)
         {
             var seccion = configuracion.GetSection("Smtp");
@@ -35,12 +43,12 @@ namespace notificacion_clientes.Configuracion
             var correoPrueba = seccion["CorreoPrueba"];
 
             if (modoPrueba && string.IsNullOrWhiteSpace(correoPrueba))
-                throw new InvalidOperationException("Con 'Smtp:ModoPrueba' activo hay que definir 'Smtp:CorreoPrueba'");
+                throw new InvalidOperationException("Con 'Smtp:ModoPrueba' activo hay que definir 'Smtp:CorreoPrueba' (variable Smtp__CorreoPrueba)");
 
             return new SmtpSettings
             {
                 Host = seccion["Host"]
-                    ?? throw new InvalidOperationException("Falta 'Smtp:Host' en appsettings.json"),
+                    ?? throw new InvalidOperationException("Falta 'Smtp:Host' (variable Smtp__Host)"),
 
                 Puerto = int.TryParse(seccion["Puerto"], out var puerto) ? puerto : 587,
 
@@ -53,12 +61,45 @@ namespace notificacion_clientes.Configuracion
                 RemitenteNombre = seccion["RemitenteNombre"] ?? "Facturación",
 
                 RemitenteEmail = seccion["RemitenteEmail"]
-                    ?? throw new InvalidOperationException("Falta 'Smtp:RemitenteEmail' en appsettings.json"),
+                    ?? throw new InvalidOperationException("Falta 'Smtp:RemitenteEmail' (variable Smtp__RemitenteEmail)"),
 
                 ModoPrueba = modoPrueba,
 
-                CorreoPrueba = correoPrueba
+                CorreoPrueba = correoPrueba,
+
+                CopiaOculta = LeerCopiaOculta(seccion)
             };
+        }
+
+        /// <summary>
+        /// Admite las dos formas de escribir la lista:
+        /// arreglo — "CopiaOculta": ["a@x.com", "b@x.com"] en el JSON, o Smtp__CopiaOculta__0 y
+        /// Smtp__CopiaOculta__1 como variables de entorno;
+        /// y una sola línea — "a@x.com, b@x.com", que es lo que cabe en una variable suelta.
+        /// </summary>
+        private static IReadOnlyList<string> LeerCopiaOculta(IConfiguration seccion)
+        {
+            var copiaOculta = seccion.GetSection("CopiaOculta");
+
+            var elementos = copiaOculta.GetChildren()
+                .Select(elemento => elemento.Value)
+                .Where(valor => !string.IsNullOrWhiteSpace(valor))
+                .ToArray();
+
+            // Cada elemento del arreglo se vuelve a separar por si trae varias direcciones juntas.
+            return elementos.Length > 0
+                ? elementos.SelectMany(SepararDirecciones).ToArray()
+                : SepararDirecciones(copiaOculta.Value).ToArray();
+        }
+
+        private static IEnumerable<string> SepararDirecciones(string? valor)
+        {
+            if (string.IsNullOrWhiteSpace(valor))
+                return Enumerable.Empty<string>();
+
+            return valor.Split(
+                new[] { ',', ';' },
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         }
     }
 }

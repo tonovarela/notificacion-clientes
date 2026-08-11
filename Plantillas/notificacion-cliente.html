@@ -64,7 +64,6 @@
                 <thead>
                   <tr>
                     <th align="left" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Factura</th>
-                    <th align="left" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Periodo</th>
                     <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Subtotal</th>
                     <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">IVA</th>
                     <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Total</th>
@@ -74,7 +73,6 @@
                   {{ for documento in documentos }}
                   <tr>
                     <td style="padding:12px 8px; border-bottom:1px solid #f0f2f5;">{{ documento.mov_id }}</td>
-                    <td style="padding:12px 8px; border-bottom:1px solid #f0f2f5;">{{ documento.periodo }}/{{ documento.ejercicio }}</td>
                     <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums;">{{ documento.subtotal }}</td>
                     <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums; color:#52606d;">{{ documento.iva }}</td>
                     <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums;">{{ documento.total }}</td>
@@ -83,16 +81,16 @@
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td colspan="2" align="right" style="padding:12px 8px 4px; color:#52606d;">Subtotal</td>
-                    <td colspan="3" align="right" style="padding:12px 8px 4px; font-variant-numeric:tabular-nums;">{{ subtotal_general }}</td>
+                    <td colspan="3" align="right" style="padding:12px 8px 4px; color:#52606d;">Subtotal</td>
+                    <td align="right" style="padding:12px 8px 4px; font-variant-numeric:tabular-nums;">{{ subtotal_general }}</td>
                   </tr>
                   <tr>
-                    <td colspan="2" align="right" style="padding:4px 8px; color:#52606d;">IVA</td>
-                    <td colspan="3" align="right" style="padding:4px 8px; font-variant-numeric:tabular-nums;">{{ iva_general }}</td>
+                    <td colspan="3" align="right" style="padding:4px 8px; color:#52606d;">IVA</td>
+                    <td align="right" style="padding:4px 8px; font-variant-numeric:tabular-nums;">{{ iva_general }}</td>
                   </tr>
                   <tr>
-                    <td colspan="2" align="right" style="padding:10px 8px; font-weight:bold; border-top:2px solid #e4e7eb;">Total</td>
-                    <td colspan="3" align="right" style="padding:10px 8px; font-weight:bold; font-variant-numeric:tabular-nums; border-top:2px solid #e4e7eb;">{{ total_general }}</td>
+                    <td colspan="3" align="right" style="padding:10px 8px; font-weight:bold; border-top:2px solid #e4e7eb;">Total</td>
+                    <td align="right" style="padding:10px 8px; font-weight:bold; font-variant-numeric:tabular-nums; border-top:2px solid #e4e7eb;">{{ total_general }}</td>
                   </tr>
                 </tfoot>
               </table>

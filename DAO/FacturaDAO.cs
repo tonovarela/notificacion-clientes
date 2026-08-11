@@ -51,7 +51,7 @@ namespace notificacion_clientes.DAO
                                         WHERE v.Mov       = 'Factura Electronica'
                                           AND v.Estatus   = 'concluido'  
                                           --AND v.FechaEmision = CONVERT(DATE, GETDATE())
-                                          AND v.FechaEmision >= DATEADD(DAY, -1, CAST(GETDATE() AS DATE));";
+                                          AND v.FechaEmision >= DATEADD(DAY, -21, CAST(GETDATE() AS DATE));";
 
         public FacturaDAO(string sqlConexion)
         {

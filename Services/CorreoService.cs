@@ -41,6 +41,10 @@ namespace notificacion_clientes.Services
             if (notificaciones.Count == 0)
                 return resultados;
 
+            // Se resuelve antes de conectar: una dirección mal escrita en la configuración se
+            // reclama de una vez y no a la mitad de los envíos.
+            var copiaOculta = ObtenerCopiaOculta();
+
             using var cliente = new SmtpClient();
 
             // La cadena del certificado se sigue validando; solo se omite la consulta de revocación (CRL/OCSP),
@@ -56,7 +60,7 @@ namespace notificacion_clientes.Services
             {
                 try
                 {
-                    var mensaje = ArmarMensaje(notificacion);
+                    var mensaje = ArmarMensaje(notificacion, copiaOculta);
 
                     if (mensaje.To.Count == 0)
                     {
@@ -65,7 +69,10 @@ namespace notificacion_clientes.Services
                     }
 
                     await cliente.SendAsync(mensaje, cancelacion);
-                    resultados.Add(ResultadoEnvio.Exitoso(notificacion.Cliente, mensaje.To.Mailboxes.Select(m => m.Address).ToList()));
+                    resultados.Add(ResultadoEnvio.Exitoso(
+                        notificacion.Cliente,
+                        mensaje.To.Mailboxes.Select(m => m.Address).ToList(),
+                        mensaje.Bcc.Mailboxes.Select(m => m.Address).ToList()));
                 }
                 catch (Exception ex)
                 {
@@ -107,7 +114,26 @@ namespace notificacion_clientes.Services
                 : SecureSocketOptions.StartTls;
         }
 
-        private MimeMessage ArmarMensaje(NotificacionCliente notificacion)
+        /// <summary>
+        /// Las direcciones de copia oculta se validan aquí y no al leer la configuración, para que
+        /// el error salga dentro del flujo normal y quede registrado en la bitácora.
+        /// </summary>
+        private IReadOnlyList<MailboxAddress> ObtenerCopiaOculta()
+        {
+            var direcciones = new List<MailboxAddress>();
+
+            foreach (var correo in _settings.CopiaOculta)
+            {
+                if (!MailboxAddress.TryParse(correo, out var direccion))
+                    throw new InvalidOperationException($"La dirección '{correo}' de 'Smtp:CopiaOculta' no es válida");
+
+                direcciones.Add(direccion);
+            }
+
+            return direcciones;
+        }
+
+        private MimeMessage ArmarMensaje(NotificacionCliente notificacion, IReadOnlyList<MailboxAddress> copiaOculta)
         {
             var mensaje = new MimeMessage();
             mensaje.From.Add(new MailboxAddress(_settings.RemitenteNombre, _settings.RemitenteEmail));
@@ -115,6 +141,14 @@ namespace notificacion_clientes.Services
 
             foreach (var destinatario in ObtenerDestinatarios(notificacion))
                 mensaje.To.Add(destinatario);
+
+            // En modo prueba el correo completo ya se redirige al buzón de pruebas; mandar además
+            // la copia oculta llenaría de duplicados un buzón real durante los ensayos.
+            if (!_settings.ModoPrueba)
+            {
+                foreach (var copia in copiaOculta)
+                    mensaje.Bcc.Add(copia);
+            }
 
             var cuerpo = new BodyBuilder { HtmlBody = _plantillaService.Renderizar(notificacion) };
 
@@ -165,10 +199,16 @@ namespace notificacion_clientes.Services
 
         public IReadOnlyList<string> Destinatarios { get; init; } = Array.Empty<string>();
 
+        /// <summary>Direcciones que recibieron copia oculta de este correo.</summary>
+        public IReadOnlyList<string> CopiaOculta { get; init; } = Array.Empty<string>();
+
         public string? Error { get; init; }
 
-        public static ResultadoEnvio Exitoso(string cliente, IReadOnlyList<string> destinatarios) =>
-            new() { Cliente = cliente, Enviado = true, Destinatarios = destinatarios };
+        public static ResultadoEnvio Exitoso(
+            string cliente,
+            IReadOnlyList<string> destinatarios,
+            IReadOnlyList<string> copiaOculta) =>
+            new() { Cliente = cliente, Enviado = true, Destinatarios = destinatarios, CopiaOculta = copiaOculta };
 
         public static ResultadoEnvio Fallido(string cliente, string error) =>
             new() { Cliente = cliente, Enviado = false, Error = error };
