@@ -1,0 +1,26 @@
+# Configuración con credenciales reales (usar appsettings.example.json como base)
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
+
+# Salida de compilación
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+*.user
+*.suo
+
+# Previsualizaciones generadas por --previsualizar
+previsualizacion-*.html
+
+# Herramientas y editores
+.claude/
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store

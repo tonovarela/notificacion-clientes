@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Facturas del día</title>
+  <style>
+    /* El logo es tinta oscura sobre transparente: si el cliente de correo invierte
+       los colores en modo oscuro, se pierde. Aquí se fuerza el fondo blanco. */
+    :root { color-scheme: light; supported-color-schemes: light; }
+
+    @media (prefers-color-scheme: dark) {
+      .franja-logo { background-color: #ffffff !important; }
+    }
+
+    /* Outlook aplica estos atributos al invertir el tema. */
+    [data-ogsc] .franja-logo,
+    [data-ogsb] .franja-logo { background-color: #ffffff !important; }
+  </style>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family:Arial, Helvetica, sans-serif; color:#1f2933;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7; padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px; background-color:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #e4e7eb;">
+
+          <tr>
+            <td class="franja-logo" bgcolor="#ffffff" style="background-color:#ffffff; padding:12px 18px 8px;">
+              <img src="cid:logo" alt="Litoprocess" width="228" height="63"
+                   style="display:block; border:0; outline:none; text-decoration:none; width:228px; height:auto; max-width:100%;">
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color:#fafbfc; padding:20px 32px; border-top:1px solid #eceff2; border-bottom:1px solid #eceff2;">
+              <p style="margin:0 0 10px; font-size:11px; line-height:1.4; letter-spacing:0.09em; text-transform:uppercase; color:#9aa5b1;">Envío de facturas para ingresar a revisión</p>
+              
+              <p style="margin:4px 0 0; font-size:13px; color:#9aa5b1;">Cliente {{ cliente }}</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:28px 32px 8px;">
+              <p style="margin:0 0 2px; font-size:15px; line-height:1.6;">
+                Estimado(a) {{ saludo }}:
+              </p>
+              <p style="margin:0 0 16px; font-size:15px; line-height:1.5; color:#1f2933; font-weight:bold;">
+                {{ razon_social }}
+              </p>
+              <p style="margin:0 0 20px; font-size:15px; line-height:1.6;">
+                Le compartimos {{ if total_documentos == 1 }}la factura correspondiente{{ else }}las {{ total_documentos }} facturas correspondientes{{ end }} al día de hoy. Para su ingreso a revisión e inicio del proceso de pago, le solicitamos que nos confirme la recepción de este correo y nos indique si requiere alguna aclaración.
+              </p> 
+                {{ if total_archivos > 0 }}Encontrará el XML y el PDF adjuntos a este correo.{{ end }}
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0 32px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:14px;">
+                <thead>
+                  <tr>
+                    <th align="left" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Factura</th>
+                    <th align="left" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Periodo</th>
+                    <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Subtotal</th>
+                    <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">IVA</th>
+                    <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{ for documento in documentos }}
+                  <tr>
+                    <td style="padding:12px 8px; border-bottom:1px solid #f0f2f5;">{{ documento.mov_id }}</td>
+                    <td style="padding:12px 8px; border-bottom:1px solid #f0f2f5;">{{ documento.periodo }}/{{ documento.ejercicio }}</td>
+                    <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums;">{{ documento.subtotal }}</td>
+                    <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums; color:#52606d;">{{ documento.iva }}</td>
+                    <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums;">{{ documento.total }}</td>
+                  </tr>
+                  {{ end }}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="2" align="right" style="padding:12px 8px 4px; color:#52606d;">Subtotal</td>
+                    <td colspan="3" align="right" style="padding:12px 8px 4px; font-variant-numeric:tabular-nums;">{{ subtotal_general }}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="2" align="right" style="padding:4px 8px; color:#52606d;">IVA</td>
+                    <td colspan="3" align="right" style="padding:4px 8px; font-variant-numeric:tabular-nums;">{{ iva_general }}</td>
+                  </tr>
+                  <tr>
+                    <td colspan="2" align="right" style="padding:10px 8px; font-weight:bold; border-top:2px solid #e4e7eb;">Total</td>
+                    <td colspan="3" align="right" style="padding:10px 8px; font-weight:bold; font-variant-numeric:tabular-nums; border-top:2px solid #e4e7eb;">{{ total_general }}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:16px 32px 32px;">
+              <p style="margin:0; font-size:14px; line-height:1.6; color:#52606d;">
+                Cualquier aclaración, quedamos a sus órdenes.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
