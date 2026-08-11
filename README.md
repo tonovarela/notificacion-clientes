@@ -63,6 +63,9 @@ es como corre en Docker.
 clientes y una ejecución accidental les enviaría facturas. Ponlo en `false` solo cuando hayas
 validado el resultado en el buzón de pruebas.
 
+Lo que redirige son los destinatarios del cliente; las direcciones de `CopiaOculta` reciben su copia
+igual que en una corrida normal.
+
 ### Copia oculta (CCO)
 
 `Smtp:CopiaOculta` agrega una lista de direcciones en CCO a **cada** correo, útil para que el buzón
@@ -81,11 +84,11 @@ Smtp__CopiaOculta=cxc@litoprocess.com,respaldo@litoprocess.com
 También se acepta el arreglo indexado (`Smtp__CopiaOculta__0`, `Smtp__CopiaOculta__1`, …) y una sola
 dirección suelta.
 
-Van en CCO, así que los clientes no ven esas direcciones ni se ven entre ellos. **Mientras
-`ModoPrueba` esté activo la copia oculta se omite**: el correo completo ya se está redirigiendo al
-buzón de pruebas y mandarla llenaría de duplicados un buzón real durante los ensayos. Si una
-dirección está mal escrita, la ejecución se detiene antes de conectarse al servidor y lo dice en la
-bitácora.
+Van en CCO, así que los clientes no ven esas direcciones ni se ven entre ellos. **La copia oculta se
+manda siempre, incluso con `ModoPrueba` activo**: es el registro de la facturación y debe recibir lo
+mismo que se envió, sin importar el modo de la corrida. Ojo con eso al hacer ensayos, porque son
+buzones reales los que reciben cada prueba. Si una dirección está mal escrita, la ejecución se
+detiene antes de conectarse al servidor y lo dice en la bitácora.
 
 ### Puertos SMTP
 

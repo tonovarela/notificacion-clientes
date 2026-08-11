@@ -31,7 +31,8 @@ namespace notificacion_clientes.Configuracion
 
         /// <summary>
         /// Direcciones que reciben copia oculta de cada correo, normalmente el buzón que archiva
-        /// la facturación. El cliente no las ve. Vacío si no se configuró ninguna.
+        /// la facturación. El cliente no las ve. Reciben copia también en modo prueba.
+        /// Vacío si no se configuró ninguna.
         /// </summary>
         public IReadOnlyList<string> CopiaOculta { get; init; } = Array.Empty<string>();
 

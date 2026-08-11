@@ -142,13 +142,10 @@ namespace notificacion_clientes.Services
             foreach (var destinatario in ObtenerDestinatarios(notificacion))
                 mensaje.To.Add(destinatario);
 
-            // En modo prueba el correo completo ya se redirige al buzón de pruebas; mandar además
-            // la copia oculta llenaría de duplicados un buzón real durante los ensayos.
-            if (!_settings.ModoPrueba)
-            {
-                foreach (var copia in copiaOculta)
-                    mensaje.Bcc.Add(copia);
-            }
+            // La copia oculta se manda siempre, incluso en modo prueba: es el registro de la
+            // facturación y debe recibir lo mismo que se envió, sin importar el modo de la corrida.
+            foreach (var copia in copiaOculta)
+                mensaje.Bcc.Add(copia);
 
             var cuerpo = new BodyBuilder { HtmlBody = _plantillaService.Renderizar(notificacion) };
 

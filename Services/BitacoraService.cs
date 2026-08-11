@@ -77,7 +77,7 @@ namespace notificacion_clientes.Services
             contenido.AppendLine($" Remitente   : {_smtp.RemitenteNombre} <{_smtp.RemitenteEmail}>");
             contenido.AppendLine($" Servidor    : {_smtp.Host}:{_smtp.Puerto} ({(_smtp.UsarSsl ? "cifrado" : "sin cifrado")})");
             contenido.AppendLine(_smtp.ModoPrueba
-                ? $" Modo prueba : SI - ningun correo llego al cliente, todo se redirigio a {_smtp.CorreoPrueba}"
+                ? $" Modo prueba : SI - ningun correo llego al cliente, se redirigio a {_smtp.CorreoPrueba}"
                 : " Modo prueba : NO - los correos se enviaron a los contactos reales del cliente");
             contenido.AppendLine($" Copia oculta: {DescribirCopiaOculta()}");
             contenido.AppendLine(SeparadorTenue);
@@ -152,15 +152,10 @@ namespace notificacion_clientes.Services
             }
         }
 
-        private string DescribirCopiaOculta()
-        {
-            if (_smtp.CopiaOculta.Count == 0)
-                return "ninguna configurada";
-
-            return _smtp.ModoPrueba
-                ? $"{string.Join(", ", _smtp.CopiaOculta)} (omitida por el modo prueba)"
-                : string.Join(", ", _smtp.CopiaOculta);
-        }
+        private string DescribirCopiaOculta() =>
+            _smtp.CopiaOculta.Count == 0
+                ? "ninguna configurada"
+                : $"{string.Join(", ", _smtp.CopiaOculta)} (recibe copia en ambos modos)";
 
         private static string DescribirContactos(NotificacionCliente notificacion) =>
             notificacion.Contactos.Count == 0
