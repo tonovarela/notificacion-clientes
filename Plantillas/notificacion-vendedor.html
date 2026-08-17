@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Facturas sin ingresar a revisión</title>
+  <style>
+    /* El logo es texto blanco sobre transparente: solo se lee sobre la franja azul.
+       Si el cliente de correo invierte los colores en modo oscuro la franja se
+       aclara y el logo desaparece, así que aquí se fuerza el azul de marca. */
+    :root { color-scheme: light; supported-color-schemes: light; }
+
+    @media (prefers-color-scheme: dark) {
+      .franja-logo { background-color: #004CA3 !important; }
+    }
+
+    /* Outlook aplica estos atributos al invertir el tema. */
+    [data-ogsc] .franja-logo,
+    [data-ogsb] .franja-logo { background-color: #004CA3 !important; }
+  </style>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family:Arial, Helvetica, sans-serif; color:#1f2933;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7; padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px; background-color:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #e4e7eb;">
+
+          <tr>
+            <td class="franja-logo" bgcolor="#004CA3" style="background-color:#004CA3; padding:18px 24px;">
+              <img src="cid:logo" alt="Litoprocess" width="228" height="44"
+                   style="display:block; border:0; outline:none; text-decoration:none; width:228px; height:auto; max-width:100%;">
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color:#fafbfc; padding:20px 32px; border-top:1px solid #eceff2; border-bottom:1px solid #eceff2;">
+              <p style="margin:0 0 10px; font-size:11px; line-height:1.4; letter-spacing:0.09em; text-transform:uppercase; color:#9aa5b1;">Facturas pendientes de ingresar a revisión</p>
+              <p style="margin:4px 0 0; font-size:13px; color:#9aa5b1;">Corte al {{ fecha_corte }}</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:28px 32px 8px;">
+              <p style="margin:0 0 2px; font-size:15px; line-height:1.6;">
+                Estimado(a):
+              </p>
+              <p style="margin:0 0 16px; font-size:15px; line-height:1.5; color:#1f2933; font-weight:bold;">
+                {{ vendedor }}
+              </p>
+              {{ if sin_agente_valido }}
+              <p style="margin:0 0 16px; padding:12px 14px; font-size:14px; line-height:1.5; color:#8a5a00; background-color:#fff6e5; border-left:4px solid #f0b429;">
+                Estas facturas no tienen agente válido asignado en el CRM, por lo que llegan a cobranza. Conviene revisar el catálogo de agentes para que se asignen solas en la próxima corrida.
+              </p>
+              {{ end }}
+              <p style="margin:0 0 20px; font-size:15px; line-height:1.6;">
+                {{ if total_facturas == 1 }}Tiene <strong>1 factura</strong> vencida que el cliente aún no ingresa a revisión{{ else }}Tiene <strong>{{ total_facturas }} facturas</strong> vencidas que sus clientes aún no ingresan a revisión{{ end }}{{ if total_clientes > 1 }}, distribuidas en {{ total_clientes }} clientes{{ end }}, por un saldo de <strong>{{ saldo_total }}</strong>. La más atrasada lleva <strong>{{ dias_vencido_maximo }} días</strong> vencida.
+              </p>
+              <p style="margin:0 0 8px; font-size:15px; line-height:1.6;">
+                Le pedimos dar seguimiento con cada cliente para que las ingresen a revisión y podamos programar su pago.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0 32px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:14px;">
+                <tbody>
+                  {{ for cliente in clientes }}
+                  <tr>
+                    <td colspan="5" style="padding:18px 8px 6px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td style="font-size:14px; font-weight:bold; color:#1f2933;">
+                            {{ cliente.razon_social }}
+                            <span style="font-weight:normal; color:#9aa5b1;">&nbsp;·&nbsp;Cliente {{ cliente.cliente }}</span>
+                          </td>
+                          <td align="right" style="font-size:14px; font-weight:bold; color:#1f2933; white-space:nowrap; font-variant-numeric:tabular-nums;">
+                            {{ cliente.saldo }}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th align="left" style="padding:8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Factura</th>
+                    <th align="left" style="padding:8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Emisión</th>
+                    <th align="left" style="padding:8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Vencimiento</th>
+                    <th align="right" style="padding:8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Vencida</th>
+                    <th align="right" style="padding:8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Saldo</th>
+                  </tr>
+                  {{ for factura in cliente.facturas }}
+                  <tr>
+                    <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5;">{{ factura.factura }}<br><span style="font-size:11px; color:#9aa5b1;">Antigüedad {{ factura.antiguedad }} días</span></td>
+                    <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5; color:#52606d; white-space:nowrap;">{{ factura.fecha_emision }}</td>
+                    <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5; color:#52606d; white-space:nowrap;">{{ factura.vencimiento }}</td>
+                    <td align="right" style="padding:10px 8px; border-bottom:1px solid #f0f2f5; white-space:nowrap; font-variant-numeric:tabular-nums; {{ if factura.dias_vencido > 60 }}color:#ab091e; font-weight:bold;{{ else }}color:#52606d;{{ end }}">{{ factura.dias_vencido }} días</td>
+                    <td align="right" style="padding:10px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums;">{{ factura.saldo }}</td>
+                  </tr>
+                  {{ end }}
+                  {{ end }}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colspan="4" align="right" style="padding:14px 8px; font-weight:bold; border-top:2px solid #e4e7eb;">Saldo total pendiente</td>
+                    <td align="right" style="padding:14px 8px; font-weight:bold; font-variant-numeric:tabular-nums; border-top:2px solid #e4e7eb;">{{ saldo_total }}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:16px 32px 32px;">
+              <p style="margin:0; font-size:14px; line-height:1.6; color:#52606d;">
+                Este es un corte automático de cartera. Cualquier aclaración, quedamos a sus órdenes.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

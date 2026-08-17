@@ -19,8 +19,11 @@ namespace notificacion_clientes.Configuracion
 
         public required SmtpSettings Smtp { get; init; }
 
-        /// <summary>Ruta absoluta de la plantilla HTML del correo.</summary>
+        /// <summary>Ruta absoluta de la plantilla HTML del correo al cliente.</summary>
         public required string RutaPlantilla { get; init; }
+
+        /// <summary>Ruta absoluta de la plantilla HTML de la cartera que se manda al vendedor.</summary>
+        public required string RutaPlantillaVendedor { get; init; }
 
         /// <summary>Ruta absoluta del logo que se incrusta en el correo.</summary>
         public required string RutaLogo { get; init; }
@@ -54,6 +57,10 @@ namespace notificacion_clientes.Configuracion
                 RutaPlantilla = Path.Combine(
                     AppContext.BaseDirectory,
                     configuracion["Correo:Plantilla"] ?? Path.Combine("Plantillas", "notificacion-cliente.html")),
+
+                RutaPlantillaVendedor = Path.Combine(
+                    AppContext.BaseDirectory,
+                    configuracion["Correo:PlantillaVendedor"] ?? Path.Combine("Plantillas", "notificacion-vendedor.html")),
 
                 RutaLogo = Path.Combine(
                     AppContext.BaseDirectory,

@@ -32,11 +32,36 @@ namespace notificacion_clientes.Services
             }
         }
 
+        public void ImprimirVendedores(IReadOnlyList<NotificacionVendedor> notificaciones)
+        {
+            Console.WriteLine($"Se encontraron {notificaciones.Count} vendedores con facturas sin ingresar a revisión.");
+
+            foreach (var notificacion in notificaciones)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Vendedor: {notificacion.Vendedor} <{notificacion.Email}>");
+                Console.WriteLine($"  Clientes: {notificacion.Clientes.Count} | Facturas: {notificacion.TotalFacturas}" +
+                                  $" | Saldo: {notificacion.Saldo:C} | Máx. vencida: {notificacion.DiasVencidoMaximo} días");
+
+                if (notificacion.SinAgenteValido)
+                    Console.WriteLine("  AVISO: son facturas sin agente asignado en el CRM; van al buzón de cobranza.");
+
+                foreach (var cliente in notificacion.Clientes)
+                {
+                    Console.WriteLine($"  {cliente.Cliente} - {cliente.RazonSocial} | {cliente.Facturas.Count} facturas | {cliente.Saldo:C}");
+
+                    foreach (var factura in cliente.Facturas)
+                        Console.WriteLine($"    {factura.Factura} | Vence {factura.Vencimiento:dd/MM/yyyy}" +
+                                          $" | {ClienteCartera.CalcularDiasVencido(factura)} días | {factura.Saldo:C}");
+                }
+            }
+        }
+
         public void ImprimirEnvios(IReadOnlyList<ResultadoEnvio> resultados, bool modoPrueba)
         {
             Console.WriteLine();
             if (modoPrueba)
-                Console.WriteLine("MODO PRUEBA: los correos se enviaron al buzón de pruebas, no a los clientes.");
+                Console.WriteLine("MODO PRUEBA: los correos se enviaron al buzón de pruebas, no a los destinatarios reales.");
 
             foreach (var resultado in resultados)
             {

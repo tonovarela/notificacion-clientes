@@ -1,0 +1,756 @@
+<title>Acuse y Recordatorio</title>
+<style>
+  :root {
+    --ground:      #F3F5F8;
+    --surface:     #FFFFFF;
+    --surface-alt: #EAEEF3;
+    --line:        #D3DAE3;
+    --line-soft:   #E3E8EF;
+    --ink:         #141D26;
+    --ink-soft:    #55636F;
+    --ink-faint:   #7C8895;
+    --accent:      #216B66;
+    --accent-soft: #DCEBE9;
+    --warn:        #9A5F14;
+    --warn-soft:   #F5E9D7;
+    --crit:        #9C332B;
+    --crit-soft:   #F6E0DD;
+    --code-bg:     #1A232C;
+    --code-ink:    #D6DEE6;
+
+    --display: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --body: "Charter", "Bitstream Charter", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+    --radius: 3px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #10161C;
+      --surface:     #182028;
+      --surface-alt: #1F2932;
+      --line:        #2E3A45;
+      --line-soft:   #262F39;
+      --ink:         #E2E8EE;
+      --ink-soft:    #9AA7B4;
+      --ink-faint:   #74818E;
+      --accent:      #63ADA5;
+      --accent-soft: #1B2E31;
+      --warn:        #D19A4E;
+      --warn-soft:   #2F2820;
+      --crit:        #DE7C72;
+      --crit-soft:   #32211F;
+      --code-bg:     #0B1116;
+      --code-ink:    #C6D0DA;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #10161C;
+    --surface:     #182028;
+    --surface-alt: #1F2932;
+    --line:        #2E3A45;
+    --line-soft:   #262F39;
+    --ink:         #E2E8EE;
+    --ink-soft:    #9AA7B4;
+    --ink-faint:   #74818E;
+    --accent:      #63ADA5;
+    --accent-soft: #1B2E31;
+    --warn:        #D19A4E;
+    --warn-soft:   #2F2820;
+    --crit:        #DE7C72;
+    --crit-soft:   #32211F;
+    --code-bg:     #0B1116;
+    --code-ink:    #C6D0DA;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .hoja {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+  }
+
+  /* ---------- Encabezado ---------- */
+  .portada {
+    padding-top: 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 34px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(34px, 6vw, 52px);
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .bajada {
+    margin: 0;
+    max-width: var(--measure);
+    color: var(--ink-soft);
+    font-size: 19px;
+  }
+
+  .ficha {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 4px;
+  }
+  .ficha b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------- Secciones ---------- */
+  section { display: flex; flex-direction: column; gap: 18px; }
+
+  h2 {
+    font-family: var(--display);
+    font-weight: 650;
+    font-size: 13px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  h3 {
+    font-family: var(--display);
+    font-weight: 650;
+    font-size: 21px;
+    letter-spacing: -0.014em;
+    line-height: 1.25;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: var(--measure); }
+  p + p { margin-top: 12px; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--surface-alt);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    padding: 0.08em 0.34em;
+    word-break: break-word;
+  }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 18px 20px;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    tab-size: 2;
+  }
+  pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+    word-break: normal;
+  }
+  .c-key { color: #7FB6AF; }
+  .c-com { color: #6B7C88; font-style: italic; }
+  .c-str { color: #D6A15E; }
+
+  ul, ol { margin: 0; padding-left: 22px; max-width: var(--measure); }
+  li { margin-bottom: 7px; }
+  li::marker { color: var(--ink-faint); }
+
+  /* ---------- Decisiones ---------- */
+  .decisiones {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .decision {
+    background: var(--surface);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .decision .rotulo {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .decision .valor {
+    font-family: var(--display);
+    font-weight: 650;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .decision .nota { font-size: 14px; color: var(--ink-soft); line-height: 1.5; }
+
+  /* ---------- Máquina de estados ---------- */
+  .flujo-envoltura { overflow-x: auto; padding-bottom: 6px; }
+  .flujo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: max-content;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+  }
+  .nodo {
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 9px 13px;
+    white-space: nowrap;
+    color: var(--ink-soft);
+  }
+  .nodo.activo { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .nodo.espera { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+  .nodo.cierre { border-color: var(--crit); color: var(--crit); background: var(--crit-soft); }
+  .flecha { color: var(--ink-faint); flex: none; }
+  .rama { display: flex; flex-direction: column; gap: 8px; }
+
+  /* ---------- Avisos ---------- */
+  .aviso {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--ink-faint);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .aviso.alto { border-left-color: var(--crit); }
+  .aviso.medio { border-left-color: var(--warn); }
+  .aviso .titulo {
+    font-family: var(--display);
+    font-weight: 650;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .sev {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-weight: 400;
+  }
+  .sev.alto { background: var(--crit-soft); color: var(--crit); }
+  .sev.medio { background: var(--warn-soft); color: var(--warn); }
+  .aviso p { font-size: 15.5px; color: var(--ink-soft); }
+  .aviso p b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Fases ---------- */
+  .fases { display: flex; flex-direction: column; gap: 28px; }
+
+  .fase {
+    display: grid;
+    grid-template-columns: 68px 1fr;
+    gap: 0 24px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 22px;
+  }
+  .fase .indice {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+    padding-top: 5px;
+  }
+  .fase .cuerpo { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .fase .cuerpo > p { font-size: 16px; }
+
+  @media (max-width: 620px) {
+    .fase { grid-template-columns: 1fr; gap: 10px; }
+    .fase .indice { padding-top: 0; }
+    body { font-size: 16px; padding-left: 18px; padding-right: 18px; }
+  }
+
+  /* ---------- Manifiesto de archivos ---------- */
+  .manifiesto {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .archivo {
+    display: grid;
+    grid-template-columns: 62px 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 9px 14px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .archivo:last-child { border-bottom: 0; }
+  .archivo .marca {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .archivo .marca.nuevo { color: var(--accent); }
+  .archivo .marca.cambia { color: var(--warn); }
+  .archivo .ruta { color: var(--ink); word-break: break-all; }
+  .archivo .que { color: var(--ink-faint); font-family: var(--body); font-size: 14px; }
+
+  /* ---------- Tabla ---------- */
+  .tabla-envoltura { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: 15px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 400;
+    background: var(--surface-alt);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { font-family: var(--display); font-weight: 600; font-size: 15px; white-space: nowrap; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-soft); }
+
+  /* ---------- Cierre ---------- */
+  .pie {
+    border-top: 1px solid var(--line);
+    padding-top: 22px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    max-width: var(--measure);
+    line-height: 1.7;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="hoja">
+
+  <header class="portada">
+    <p class="eyebrow">notificacion-clientes · plan de implementación</p>
+    <h1>Acuse y Recordatorio</h1>
+    <p class="bajada">Detectar qué clientes contestaron el correo de facturas, dejarlo registrado, y reenviar una sola vez a los que no respondieron.</p>
+    <div class="ficha">
+      <span><b>Rama</b> main · 4efcaf8</span>
+      <span><b>Stack</b> .NET 8 · MailKit · Dapper · Scriban</span>
+      <span><b>Esfuerzo</b> ~3 días de trabajo</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Decisiones tomadas</h2>
+    <div class="decisiones">
+      <div class="decision">
+        <span class="rotulo">Persistencia</span>
+        <span class="valor">Tablas propias en SQL Server</span>
+        <span class="nota">Esquema <code>notif</code> en la base de la cadena de conexión. Consultable desde el ERP, sobrevive al contenedor.</span>
+      </div>
+      <div class="decision">
+        <span class="rotulo">Detección</span>
+        <span class="valor">IMAP sobre el buzón remitente</span>
+        <span class="nota">Se lee <code>cxc@litoprocess.com</code> y se cruzan los headers <code>In-Reply-To</code> / <code>References</code>.</span>
+      </div>
+      <div class="decision">
+        <span class="rotulo">Política</span>
+        <span class="valor">Un solo recordatorio</span>
+        <span class="nota">A los N días sin respuesta se reenvía una vez. Si tampoco contestan, se cierra como <code>SIN_RESPUESTA</code>.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ciclo de vida de un envío</h2>
+    <p>Cada correo que sale queda como un renglón en <code>notif.Envio</code> y se mueve por estos estados. El recordatorio nace como un renglón nuevo ligado al original, así que la evidencia de los dos intentos queda separada pero relacionada.</p>
+    <div class="flujo-envoltura">
+      <div class="flujo">
+        <span class="nodo activo">ENVIADO</span>
+        <span class="flecha">→</span>
+        <span class="nodo espera">espera N días</span>
+        <span class="flecha">→</span>
+        <div class="rama">
+          <span class="nodo activo">CONTESTADO</span>
+          <span class="nodo">RECORDADO</span>
+        </div>
+        <span class="flecha">→</span>
+        <div class="rama">
+          <span class="nodo activo">CONTESTADO</span>
+          <span class="nodo cierre">SIN_RESPUESTA</span>
+        </div>
+      </div>
+    </div>
+    <p>Un envío que ni siquiera salió del SMTP queda en <code>FALLIDO</code> y nunca entra al ciclo de recordatorios: eso ya lo reporta la bitácora del día y se atiende a mano.</p>
+  </section>
+
+  <section>
+    <h2>Antes de empezar: tres cosas que rompen el seguimiento</h2>
+
+    <div class="aviso alto">
+      <div class="titulo">La consulta trae 21 días, no el día <span class="sev alto">bloqueante</span></div>
+      <p><code>DAO/FacturaDAO.cs:37</code> filtra <code>FechaEmision &gt;= DATEADD(DAY, -21, ...)</code> y tiene comentada la línea del día. Hoy eso solo significa que cada corrida reenvía las facturas de las últimas tres semanas. <b>Con seguimiento encima, cada corrida abriría un envío nuevo por las mismas facturas</b> y a los N días dispararía un recordatorio por cada uno. Hay que volver al filtro del día —o dejar el rango como llave de configuración— y hacer que el registro sea idempotente por cliente + MovID.</p>
+    </div>
+
+    <div class="aviso alto">
+      <div class="titulo">En modo prueba nadie puede contestar <span class="sev alto">bloqueante</span></div>
+      <p>Con <code>Smtp:ModoPrueba</code> activo todo se redirige al buzón de pruebas, así que el cliente real nunca ve el correo. Si el seguimiento no distingue esos envíos, <b>cada ensayo genera un pendiente que a los N días manda un recordatorio de verdad</b>. Por eso <code>notif.Envio</code> guarda la columna <code>ModoPrueba</code> y la consulta de pendientes la excluye.</p>
+    </div>
+
+    <div class="aviso medio">
+      <div class="titulo">Gmail puede reescribir el Message-Id <span class="sev medio">verificar</span></div>
+      <p>Todo el cruce depende de que el <code>Message-Id</code> que ponemos sea el mismo que el cliente ve y referencia al contestar. <code>smtp.gmail.com</code> puede reemplazarlo al aceptar el mensaje; si eso pasa, el <code>In-Reply-To</code> de la respuesta apunta a un id que no tenemos guardado y no casa nada. <b>Se verifica en la Fase 0 antes de escribir código de producción</b>, y el diseño trae plan B por si resulta que sí lo reescribe.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Fases</h2>
+    <div class="fases">
+
+      <!-- FASE 0 -->
+      <article class="fase">
+        <div class="indice">FASE 00<br>~1 h</div>
+        <div class="cuerpo">
+          <h3>Spike: ¿sobrevive nuestro Message-Id?</h3>
+          <p>Sin escribir código de producción. Se manda un correo por el flujo actual a una cuenta propia, se contesta desde ahí, y se comparan tres valores: el <code>Message-Id</code> que MimeKit generó, el que aparece en el correo recibido, y el <code>In-Reply-To</code> de la respuesta.</p>
+          <ul>
+            <li><b>Si coinciden</b> — el cruce por <code>Message-Id</code> basta y el resto del plan corre tal cual.</li>
+            <li><b>Si Gmail lo reescribió</b> — se agrega un paso: después de enviar, se busca el mensaje en <code>[Gmail]/Sent Mail</code> por un header propio <code>X-Notificacion-Id</code> (un GUID que sí controlamos) y se guarda el <code>Message-Id</code> real que quedó. Son ~30 líneas más en <code>CorreoService</code> y una conexión IMAP extra al final de la corrida.</li>
+          </ul>
+          <p>El header <code>X-Notificacion-Id</code> se agrega en ambos casos: no cuesta nada y es lo que permite reconciliar si algo se descuadra.</p>
+        </div>
+      </article>
+
+      <!-- FASE 1 -->
+      <article class="fase">
+        <div class="indice">FASE 01<br>~4 h</div>
+        <div class="cuerpo">
+          <h3>Persistencia: el esquema <code>notif</code></h3>
+          <p>Un script idempotente que el DBA pueda leer de corrido y correr dos veces sin daño. Va en el repo y se documenta en <code>DESPLIEGUE.md</code> como paso previo a la primera corrida.</p>
+<pre><code><span class="c-com">-- deploy/sql/001-seguimiento.sql</span>
+<span class="c-key">IF</span> SCHEMA_ID(<span class="c-str">'notif'</span>) <span class="c-key">IS NULL</span> <span class="c-key">EXEC</span>(<span class="c-str">'CREATE SCHEMA notif'</span>);
+<span class="c-key">GO</span>
+
+<span class="c-key">IF</span> OBJECT_ID(<span class="c-str">'notif.Envio'</span>) <span class="c-key">IS NULL</span>
+<span class="c-key">CREATE TABLE</span> notif.Envio (
+    IdEnvio            <span class="c-key">INT IDENTITY</span>(1,1) <span class="c-key">CONSTRAINT</span> PK_notif_Envio <span class="c-key">PRIMARY KEY</span>,
+    Cliente            <span class="c-key">VARCHAR</span>(20)      <span class="c-key">NOT NULL</span>,
+    RazonSocial        <span class="c-key">NVARCHAR</span>(255)    <span class="c-key">NULL</span>,
+    <span class="c-com">-- Sin &lt;&gt;, tal como lo expone MimeKit. 255 cabe en un indice unico (limite 900 bytes).</span>
+    MessageId          <span class="c-key">VARCHAR</span>(255)     <span class="c-key">NOT NULL</span>,
+    <span class="c-com">-- Viaja como header X-Notificacion-Id: es el id que SI controlamos nosotros.</span>
+    Token              <span class="c-key">UNIQUEIDENTIFIER</span> <span class="c-key">NOT NULL</span>,
+    <span class="c-com">-- NULL = envio original. Si trae valor, es el recordatorio de ese envio.</span>
+    IdEnvioOriginal    <span class="c-key">INT</span>              <span class="c-key">NULL REFERENCES</span> notif.Envio(IdEnvio),
+    Intento            <span class="c-key">TINYINT</span>          <span class="c-key">NOT NULL DEFAULT</span> 1,
+    Asunto             <span class="c-key">NVARCHAR</span>(500)    <span class="c-key">NOT NULL</span>,
+    Destinatarios      <span class="c-key">NVARCHAR</span>(2000)   <span class="c-key">NOT NULL</span>,
+    <span class="c-com">-- Los envios en modo prueba jamas llegaron al cliente: no generan recordatorio.</span>
+    ModoPrueba         <span class="c-key">BIT</span>              <span class="c-key">NOT NULL</span>,
+    FechaEnvio         <span class="c-key">DATETIME2</span>(0)     <span class="c-key">NOT NULL</span>,
+    Estado             <span class="c-key">VARCHAR</span>(16)      <span class="c-key">NOT NULL</span>,
+    Error              <span class="c-key">NVARCHAR</span>(1000)   <span class="c-key">NULL</span>,
+    FechaRespuesta     <span class="c-key">DATETIME2</span>(0)     <span class="c-key">NULL</span>,
+    RespondioEmail     <span class="c-key">NVARCHAR</span>(320)    <span class="c-key">NULL</span>,
+    RespuestaMessageId <span class="c-key">VARCHAR</span>(255)     <span class="c-key">NULL</span>,
+    RespuestaAsunto    <span class="c-key">NVARCHAR</span>(500)    <span class="c-key">NULL</span>,
+    <span class="c-key">CONSTRAINT</span> UQ_notif_Envio_MessageId <span class="c-key">UNIQUE</span> (MessageId),
+    <span class="c-key">CONSTRAINT</span> CK_notif_Envio_Estado <span class="c-key">CHECK</span> (Estado <span class="c-key">IN</span>
+        (<span class="c-str">'ENVIADO'</span>,<span class="c-str">'FALLIDO'</span>,<span class="c-str">'CONTESTADO'</span>,<span class="c-str">'RECORDADO'</span>,<span class="c-str">'SIN_RESPUESTA'</span>))
+);
+
+<span class="c-com">-- Cubre la consulta de pendientes, que es la que corre todos los dias.</span>
+<span class="c-key">CREATE INDEX</span> IX_notif_Envio_Pendientes <span class="c-key">ON</span> notif.Envio
+    (Estado, ModoPrueba, FechaEnvio) <span class="c-key">INCLUDE</span> (Cliente, Intento, MessageId);
+
+<span class="c-com">-- Que facturas iban en cada correo: sirve para reenviar los mismos adjuntos</span>
+<span class="c-com">-- y para no volver a abrir un envio por una factura ya notificada.</span>
+<span class="c-key">CREATE TABLE</span> notif.EnvioFactura (
+    IdEnvio <span class="c-key">INT</span>           <span class="c-key">NOT NULL REFERENCES</span> notif.Envio(IdEnvio),
+    MovID   <span class="c-key">VARCHAR</span>(50)   <span class="c-key">NOT NULL</span>,
+    Total   <span class="c-key">DECIMAL</span>(18,4) <span class="c-key">NOT NULL</span>,
+    Moneda  <span class="c-key">VARCHAR</span>(3)    <span class="c-key">NOT NULL</span>,
+    <span class="c-key">CONSTRAINT</span> PK_notif_EnvioFactura <span class="c-key">PRIMARY KEY</span> (IdEnvio, MovID)
+);</code></pre>
+          <p>Del lado de C#, un DAO con Dapper al estilo del que ya existe: <code>Registrar</code>, <code>ObtenerPendientes</code>, <code>ObtenerParaConciliar</code>, <code>MarcarContestado</code>, <code>MarcarRecordado</code>, <code>MarcarSinRespuesta</code> y <code>YaNotificada(cliente, movId)</code>.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">deploy/sql/001-seguimiento.sql</span> <span class="que">— esquema, idempotente</span></span></div>
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Entity/EnvioNotificacion.cs</span> <span class="que">— el renglón y su enum de estado</span></span></div>
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">DAO/SeguimientoDAO.cs</span> <span class="que">— Dapper, mismo estilo que FacturaDAO</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">DAO/FacturaDAO.cs</span> <span class="que">— volver al filtro del día</span></span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- FASE 2 -->
+      <article class="fase">
+        <div class="indice">FASE 02<br>~3 h</div>
+        <div class="cuerpo">
+          <h3>Capturar lo que se envió</h3>
+          <p>Hoy <code>CorreoService</code> manda el correo y devuelve un <code>ResultadoEnvio</code> que no conserva nada con qué identificar el mensaje después. Se le agregan tres datos y el <code>Program</code> los persiste.</p>
+<pre><code><span class="c-com">// CorreoService.ArmarMensaje — fijamos nosotros el id, no lo dejamos al azar</span>
+<span class="c-key">var</span> token = Guid.NewGuid();
+mensaje.MessageId = MimeUtils.GenerateMessageId(_settings.RemitenteEmail.Split(<span class="c-str">'@'</span>)[1]);
+mensaje.Headers.Add(<span class="c-str">"X-Notificacion-Id"</span>, token.ToString(<span class="c-str">"N"</span>));</code></pre>
+          <p><code>ResultadoEnvio</code> gana <code>MessageId</code>, <code>Token</code> y <code>Asunto</code>; el registro en base ocurre después de <code>Enviar</code>, dentro del mismo <code>try</code> que ya escribe la bitácora, para que un fallo al guardar no deje correos enviados sin rastro.</p>
+          <p><b>Idempotencia.</b> Antes de armar el correo se consulta <code>YaNotificada(cliente, movId)</code>: si esa factura ya salió en un envío que no está <code>FALLIDO</code>, no se vuelve a incluir. Es la red de seguridad contra una doble corrida del timer o un rango de fechas mal puesto.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Services/CorreoService.cs</span> <span class="que">— Message-Id propio, header de token, ResultadoEnvio ampliado</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Program.cs</span> <span class="que">— registrar el envío tras enviar</span></span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- FASE 3 -->
+      <article class="fase">
+        <div class="indice">FASE 03<br>~6 h</div>
+        <div class="cuerpo">
+          <h3>Leer el buzón y cruzar respuestas</h3>
+          <p>MailKit ya trae cliente IMAP, así que no hay paquete nuevo que agregar. El buzón se abre <b>en solo lectura</b>: cobranza usa ese mismo inbox y un proceso automático no debería marcarle correos como leídos.</p>
+<pre><code><span class="c-com">// Services/RespuestaService.cs</span>
+<span class="c-key">using var</span> imap = <span class="c-key">new</span> ImapClient();
+<span class="c-key">await</span> imap.ConnectAsync(_cfg.Host, _cfg.Puerto, SecureSocketOptions.SslOnConnect, ct);
+<span class="c-key">await</span> imap.AuthenticateAsync(_cfg.Usuario, _cfg.Password, ct);
+
+<span class="c-key">var</span> carpeta = <span class="c-key">await</span> imap.GetFolderAsync(_cfg.Carpeta, ct);   <span class="c-com">// INBOX</span>
+<span class="c-key">await</span> carpeta.OpenAsync(FolderAccess.ReadOnly, ct);         <span class="c-com">// no marca leidos</span>
+
+<span class="c-com">// Solo desde el pendiente mas viejo: no recorremos el buzon entero.</span>
+<span class="c-key">var</span> uids = <span class="c-key">await</span> carpeta.SearchAsync(SearchQuery.DeliveredAfter(desde), ct);
+
+<span class="c-com">// Envelope trae From/Subject/Date/InReplyTo; References, la cadena del hilo.</span>
+<span class="c-com">// Los headers extra sirven para descartar autorrespuestas. Nunca se baja el cuerpo.</span>
+<span class="c-key">var</span> resumenes = <span class="c-key">await</span> carpeta.FetchAsync(uids,
+    MessageSummaryItems.Envelope | MessageSummaryItems.References,
+    <span class="c-key">new</span>[] { <span class="c-str">"Auto-Submitted"</span>, <span class="c-str">"Precedence"</span>, <span class="c-str">"X-Autoreply"</span> }, ct);</code></pre>
+          <p><b>Cómo casa cada respuesta</b>, en orden:</p>
+          <ol>
+            <li><b>Por hilo.</b> El <code>In-Reply-To</code>, o cualquier id de <code>References</code>, aparece entre los <code>MessageId</code> pendientes. Es exacto y es el camino normal.</li>
+            <li><b>Por remitente.</b> Si lo anterior no dio nada: el <code>From</code> de la respuesta es uno de los destinatarios de un envío pendiente, la fecha es posterior al envío, y el asunto —quitando <code>Re:</code>, <code>RE:</code>, <code>RV:</code>, <code>Fwd:</code>— coincide con el original. Cubre a los clientes cuyo cliente de correo no conserva los headers del hilo.</li>
+          </ol>
+          <p><b>Qué NO cuenta como respuesta.</b> Sin este filtro, un "estoy fuera de la oficina" cerraría el pendiente y el cliente nunca recibiría el recordatorio:</p>
+          <ul>
+            <li><code>Auto-Submitted</code> con cualquier valor distinto de <code>no</code>, o <code>Precedence: bulk</code> / <code>auto_reply</code>, o presencia de <code>X-Autoreply</code>.</li>
+            <li>Remitentes <code>mailer-daemon@</code> y <code>postmaster@</code>: eso es un rebote, no una respuesta. El envío se marca <code>FALLIDO</code> con el motivo, para que cobranza corrija el correo en el CRM.</li>
+          </ul>
+          <p>La conciliación guarda <code>RespuestaMessageId</code>, así que volver a correr el comando no reprocesa lo ya visto.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Services/RespuestaService.cs</span> <span class="que">— IMAP, cruce y descartes</span></span></div>
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Configuracion/ImapSettings.cs</span> <span class="que">— cae a las credenciales de Smtp si no se define</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Configuracion/AppSettings.cs</span> <span class="que">— secciones Imap y Seguimiento</span></span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- FASE 4 -->
+      <article class="fase">
+        <div class="indice">FASE 04<br>~2 h</div>
+        <div class="cuerpo">
+          <h3>Bitácora del seguimiento</h3>
+          <p>La corrida de seguimiento deja su propio archivo, con el mismo formato y criterio que el de envíos: <code>Logs/seguimiento-2026-08-17_10-00-12.log</code>. Tres bloques —respuestas detectadas, recordatorios enviados, cerrados sin respuesta— y el mismo comportamiento ante un error fatal: se escribe de todos modos con el motivo y sale con código 1.</p>
+<pre><code>[003] CONTESTADO | Cliente C000123 - COMERCIALIZADORA DEL BAJIO S.A. DE C.V.
+      Envio original : 2026-08-12 19:04:11 (intento 1)
+      Respondio      : Laura Mendez &lt;lmendez@bajio.com&gt; el 2026-08-13 09:22
+      Asunto         : Re: Facturas del dia - COMERCIALIZADORA DEL BAJIO
+      Cruce          : In-Reply-To
+
+[007] RECORDATORIO | Cliente C000456 - IMPRESOS DEL NORTE S.A. DE C.V.
+      Envio original : 2026-08-12 19:04:33 (5 dias sin respuesta)
+      Destinatarios  : compras@impresosnorte.com
+      Adjuntos       : 2 facturas re-enviadas (FAC-88131, FAC-88140)</code></pre>
+          <p>La base es la bitácora consultable; el archivo es la evidencia que se lee sin abrir SQL, igual que hoy.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Services/BitacoraService.cs</span> <span class="que">— método EscribirSeguimiento</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Services/ReporteConsola.cs</span> <span class="que">— salida del comando en pantalla</span></span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- FASE 5 -->
+      <article class="fase">
+        <div class="indice">FASE 05<br>~5 h</div>
+        <div class="cuerpo">
+          <h3>El recordatorio</h3>
+          <p>Se seleccionan los envíos en <code>ENVIADO</code>, con <code>ModoPrueba = 0</code>, <code>Intento = 1</code> y más de <code>DiasEspera</code> días encima. Para cada uno se vuelven a descargar del API los XML y PDF de los <code>MovID</code> guardados en <code>notif.EnvioFactura</code> —el cliente probablemente nunca los abrió, mandarlo sin adjuntos lo obligaría a buscar el correo anterior— y se arma un mensaje nuevo <b>dentro del hilo original</b>:</p>
+<pre><code>mensaje.Subject = <span class="c-str">$"Re: {envio.Asunto}"</span>;
+mensaje.InReplyTo = envio.MessageId;
+mensaje.References.Add(envio.MessageId);</code></pre>
+          <p>Así le llega al cliente como continuación de la conversación y no como un correo suelto —y si contesta, su <code>In-Reply-To</code> cae en la misma cadena, que el cruce de la Fase 3 ya sabe leer.</p>
+          <p>La plantilla es nueva porque el texto es otro: aquí se le recuerda que las facturas siguen sin acuse. Recibe dos variables extra, <code>dias_transcurridos</code> y <code>fecha_envio_original</code>, sobre el mismo modelo que ya arma <code>PlantillaService</code>.</p>
+          <p><b>Cierre del ciclo.</b> El original pasa a <code>RECORDADO</code> y el recordatorio nace como renglón nuevo con <code>Intento = 2</code> e <code>IdEnvioOriginal</code>. Como la consulta de pendientes exige <code>Intento = 1</code>, no existe un tercer intento por construcción. Pasados otros <code>DiasEspera</code>, ambos renglones se cierran en <code>SIN_RESPUESTA</code> y salen en la bitácora para revisión manual.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Plantillas/recordatorio-cliente.html</span> <span class="que">— mismo diseño, otro texto</span></span></div>
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Services/RecordatorioService.cs</span> <span class="que">— selección, re-descarga y reenvío</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Services/PlantillaService.cs</span> <span class="que">— plantilla como parámetro, no fija</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Services/CorreoService.cs</span> <span class="que">— envío dentro de un hilo existente</span></span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- FASE 6 -->
+      <article class="fase">
+        <div class="indice">FASE 06<br>~3 h</div>
+        <div class="cuerpo">
+          <h3>Comandos y agenda</h3>
+          <p><code>Program.cs</code> es hoy un composition root de una sola pasada. Pasa a despachar por argumento, y el armado de dependencias se mueve a una clase aparte para que no crezca:</p>
+          <div class="tabla-envoltura">
+            <table>
+              <thead><tr><th>Comando</th><th>Qué hace</th><th class="num">Agenda</th></tr></thead>
+              <tbody>
+                <tr><td>(sin args)</td><td>Envía las facturas del día y registra cada envío. Es el comportamiento actual más la Fase 2.</td><td class="num">L–V 19:00</td></tr>
+                <tr><td>--seguimiento</td><td>Concilia respuestas y manda los recordatorios que toquen, en una sola pasada.</td><td class="num">L–V 10:00</td></tr>
+                <tr><td>--revisar-respuestas</td><td>Solo la conciliación. Para correr a mano y ver qué detecta sin mandar nada.</td><td class="num">manual</td></tr>
+                <tr><td>--recordatorios</td><td>Solo los reenvíos. Útil para reintentar si el SMTP falló a media pasada.</td><td class="num">manual</td></tr>
+                <tr><td>--previsualizar</td><td>Genera el HTML en disco sin enviar. Ya existe comentado en <code>Program.cs:37</code>; se descomenta.</td><td class="num">manual</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p><b>Dos detalles del despliegue que hay que tocar.</b> <code>run.sh</code> pasa los argumentos al contenedor con <code>"$@"</code>; y el <code>--name</code> fijo, que hoy es el anti-solapamiento, tiene que variar por comando —<code>notificacion-clientes-seguimiento</code>— porque si no, la corrida de las 10:00 se bloquearía contra un contenedor de envío que siguiera vivo, y viceversa.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Program.cs</span> <span class="que">— despacho por argumento</span></span></div>
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Comandos/</span> <span class="que">— una clase por comando</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">deploy/run.sh</span> <span class="que">— "$@" y nombre de contenedor por comando</span></span></div>
+            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">deploy/notificacion-seguimiento.service</span> <span class="que">— y su .timer, L–V 10:00</span></span></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- FASE 7 -->
+      <article class="fase">
+        <div class="indice">FASE 07<br>~2 h</div>
+        <div class="cuerpo">
+          <h3>Configuración y documentación</h3>
+<pre><code><span class="c-str">"Imap"</span>: {
+  <span class="c-str">"Host"</span>: <span class="c-str">"imap.gmail.com"</span>,
+  <span class="c-str">"Puerto"</span>: 993,
+  <span class="c-com">// Vacios = se usan las credenciales de Smtp. Es la misma cuenta.</span>
+  <span class="c-str">"Usuario"</span>: <span class="c-str">""</span>,
+  <span class="c-str">"Password"</span>: <span class="c-str">""</span>,
+  <span class="c-str">"Carpeta"</span>: <span class="c-str">"INBOX"</span>
+},
+<span class="c-str">"Seguimiento"</span>: {
+  <span class="c-str">"Habilitado"</span>: <span class="c-key">true</span>,
+  <span class="c-str">"DiasEspera"</span>: 3,
+  <span class="c-str">"SoloDiasHabiles"</span>: <span class="c-key">true</span>
+}</code></pre>
+          <p>Las mismas llaves como variables de entorno (<code>Imap__Host</code>, <code>Seguimiento__DiasEspera</code>), igual que todo lo demás. Y en el README, una sección de seguimiento con el ciclo de estados, el script SQL como paso previo y los comandos nuevos.</p>
+          <div class="manifiesto">
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">appsettings.example.json</span> <span class="que">— secciones Imap y Seguimiento</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">.env.example</span> <span class="que">— equivalentes con __</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">README.md</span> <span class="que">— sección de seguimiento</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">deploy/DESPLIEGUE.md</span> <span class="que">— script SQL y segundo timer</span></span></div>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>Riesgos</h2>
+    <div class="tabla-envoltura">
+      <table>
+        <thead><tr><th>Riesgo</th><th>Consecuencia</th><th>Mitigación</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Message-Id reescrito</td>
+            <td>Ninguna respuesta casa por hilo y todos los clientes reciben recordatorio.</td>
+            <td>Fase 0 lo detecta antes de escribir código; el cruce por remitente + asunto lo cubre igual.</td>
+          </tr>
+          <tr>
+            <td>Falso positivo</td>
+            <td>Un autorreply cierra el pendiente y el cliente nunca recibe el recordatorio.</td>
+            <td>Descarte por <code>Auto-Submitted</code>, <code>Precedence</code> y <code>X-Autoreply</code>. Falla del lado seguro: ante la duda, insistir.</td>
+          </tr>
+          <tr>
+            <td>Recordatorio indebido</td>
+            <td>Se le insiste a un cliente que sí contestó, por otro canal o a otro buzón.</td>
+            <td>Un solo recordatorio por envío, por construcción de la consulta. El daño máximo es un correo de más.</td>
+          </tr>
+          <tr>
+            <td>Contraseña IMAP</td>
+            <td>Una credencial más que rota y que da acceso de lectura a todo el buzón de cobranza.</td>
+            <td>Misma contraseña de aplicación del SMTP, solo por variable de entorno, y la carpeta se abre en <code>ReadOnly</code>.</td>
+          </tr>
+          <tr>
+            <td>Permisos en la BD</td>
+            <td>El usuario de la aplicación hoy solo lee; el esquema <code>notif</code> necesita escritura.</td>
+            <td>Acordarlo con el DBA antes de la Fase 1. Es el único requisito externo del plan.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Orden de trabajo</h2>
+    <p>Las fases van en orden y cada una deja el proyecto en un estado que corre. El primer corte útil es la Fase 2: aun sin IMAP, ya queda registro consultable de todo lo que se envía. El seguimiento completo entra vivo en la Fase 5.</p>
+    <p>Sugerencia para la puesta en producción: correr las Fases 1 a 3 con <code>Smtp:ModoPrueba</code> en <code>true</code> durante una semana. El registro y la conciliación funcionan igual, los recordatorios no salen porque la consulta excluye los envíos de prueba, y se alcanza a ver si el cruce de respuestas acierta antes de que le llegue nada a un cliente.</p>
+  </section>
+
+  <p class="pie">Plan sobre notificacion-clientes @ 4efcaf8 · 17 de agosto de 2026<br>Decisiones fijadas: tablas en SQL Server · IMAP sobre el buzón remitente · un solo recordatorio.</p>
+
+</div>

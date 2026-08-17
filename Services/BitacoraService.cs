@@ -58,6 +58,114 @@ namespace notificacion_clientes.Services
             return ruta;
         }
 
+        /// <summary>
+        /// Bitácora de la corrida de cartera por vendedor. Va a un archivo aparte
+        /// (revision-vendedores-*.log) para que no se mezcle con la de facturas a clientes.
+        /// </summary>
+        public async Task<string> EscribirVendedores(
+            IReadOnlyList<NotificacionVendedor> notificaciones,
+            IReadOnlyList<ResultadoEnvio> resultados,
+            DateTime inicio,
+            string? errorFatal = null)
+        {
+            Directory.CreateDirectory(_directorio);
+
+            var ruta = Path.Combine(_directorio, $"revision-vendedores-{inicio.ToString(FormatoNombreArchivo, Cultura)}.log");
+            var contenido = new StringBuilder();
+            var enviados = resultados.Count(r => r.Enviado);
+
+            contenido.AppendLine(Separador);
+            contenido.AppendLine(" BITACORA DE FACTURAS SIN INGRESAR A REVISION - AVISO A VENDEDORES");
+            contenido.AppendLine(Separador);
+            contenido.AppendLine($" Inicio      : {inicio.ToString(FormatoFechaHora, Cultura)}");
+            contenido.AppendLine($" Fin         : {DateTime.Now.ToString(FormatoFechaHora, Cultura)}");
+            contenido.AppendLine($" Equipo      : {Environment.MachineName}");
+            contenido.AppendLine($" Remitente   : {_smtp.RemitenteNombre} <{_smtp.RemitenteEmail}>");
+            contenido.AppendLine($" Servidor    : {_smtp.Host}:{_smtp.Puerto} ({(_smtp.UsarSsl ? "cifrado" : "sin cifrado")})");
+            contenido.AppendLine(_smtp.ModoPruebaVendedores
+                ? $" Modo prueba : SI - ningun correo llego al vendedor, se redirigio a {_smtp.CorreoPruebaVendedores}"
+                : " Modo prueba : NO - los correos se enviaron a los vendedores reales");
+            contenido.AppendLine($" Copia oculta: {DescribirCopiaOculta()}");
+            contenido.AppendLine(SeparadorTenue);
+            contenido.AppendLine(" RESUMEN");
+            contenido.AppendLine($"   Vendedores por avisar  : {notificaciones.Count}");
+            contenido.AppendLine($"   Correos enviados       : {enviados}");
+            contenido.AppendLine($"   Correos fallidos       : {resultados.Count - enviados}");
+            contenido.AppendLine($"   Facturas pendientes    : {notificaciones.Sum(n => n.TotalFacturas)}");
+            contenido.AppendLine($"   Saldo total            : {notificaciones.Sum(n => n.Saldo).ToString("C", Cultura)}");
+
+            if (errorFatal is not null)
+            {
+                contenido.AppendLine(SeparadorTenue);
+                contenido.AppendLine($" LA EJECUCION SE INTERRUMPIO: {errorFatal}");
+            }
+
+            contenido.AppendLine(Separador);
+            EscribirDetalleVendedores(contenido, notificaciones, resultados);
+
+            await File.WriteAllTextAsync(ruta, contenido.ToString(), new UTF8Encoding(false));
+
+            return ruta;
+        }
+
+        private static void EscribirDetalleVendedores(
+            StringBuilder contenido,
+            IReadOnlyList<NotificacionVendedor> notificaciones,
+            IReadOnlyList<ResultadoEnvio> resultados)
+        {
+            if (notificaciones.Count == 0)
+            {
+                contenido.AppendLine();
+                contenido.AppendLine("No habia facturas sin ingresar a revision en esta corrida.");
+                return;
+            }
+
+            // La llave del resultado es el correo del vendedor: es lo unico unico por grupo.
+            var porVendedor = resultados.ToDictionary(r => r.Cliente, StringComparer.OrdinalIgnoreCase);
+            var consecutivo = 0;
+
+            foreach (var notificacion in notificaciones)
+            {
+                consecutivo++;
+                porVendedor.TryGetValue(notificacion.Email, out var resultado);
+
+                var estado = resultado is null ? "SIN ENVIAR" : resultado.Enviado ? "ENVIADO" : "FALLO";
+
+                contenido.AppendLine();
+                contenido.AppendLine($"[{consecutivo:D3}] {estado} | {notificacion.Vendedor} <{notificacion.Email}>");
+
+                if (resultado is null)
+                    contenido.AppendLine("      Motivo        : el proceso no llego a enviar este correo");
+                else if (resultado.Enviado)
+                    contenido.AppendLine($"      Destinatarios : {string.Join(", ", resultado.Destinatarios)}");
+                else
+                    contenido.AppendLine($"      Error         : {resultado.Error}");
+
+                if (resultado is not null && resultado.CopiaOculta.Count > 0)
+                    contenido.AppendLine($"      Copia oculta  : {string.Join(", ", resultado.CopiaOculta)}");
+
+                contenido.AppendLine($"      Cartera       : {notificacion.Clientes.Count} clientes" +
+                                     $" | {notificacion.TotalFacturas} facturas" +
+                                     $" | Saldo {notificacion.Saldo.ToString("C", Cultura)}" +
+                                     $" | Maxima {notificacion.DiasVencidoMaximo} dias vencida");
+
+                if (notificacion.SinAgenteValido)
+                    contenido.AppendLine("      AVISO         : facturas sin agente asignado en el CRM, se enviaron a cobranza");
+
+                foreach (var cliente in notificacion.Clientes)
+                {
+                    contenido.AppendLine($"        Cliente {cliente.Cliente} - {cliente.RazonSocial}" +
+                                         $" | {cliente.Facturas.Count} facturas | {cliente.Saldo.ToString("C", Cultura)}");
+
+                    foreach (var factura in cliente.Facturas)
+                        contenido.AppendLine($"          - {factura.Factura} | Emitida {factura.FechaEmision:dd/MM/yyyy}" +
+                                             $" | Vence {factura.Vencimiento:dd/MM/yyyy}" +
+                                             $" | {ClienteCartera.CalcularDiasVencido(factura)} dias" +
+                                             $" | Saldo {factura.Saldo.ToString("C", Cultura)}");
+                }
+            }
+        }
+
         private void EscribirEncabezado(
             StringBuilder contenido,
             DateTime inicio,

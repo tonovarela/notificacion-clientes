@@ -30,6 +30,16 @@ namespace notificacion_clientes.Configuracion
         public string? CorreoPrueba { get; init; }
 
         /// <summary>
+        /// Lo mismo que ModoPrueba pero solo para el aviso a vendedores. Existe por separado porque
+        /// los dos procesos se programan aparte: se puede dejar el de clientes en producción mientras
+        /// el de vendedores todavía se está probando. Si no se configura, hereda ModoPrueba.
+        /// </summary>
+        public required bool ModoPruebaVendedores { get; init; }
+
+        /// <summary>Buzón que recibe los avisos a vendedores en modo prueba. Si no se configura, usa CorreoPrueba.</summary>
+        public string? CorreoPruebaVendedores { get; init; }
+
+        /// <summary>
         /// Direcciones que reciben copia oculta de cada correo, normalmente el buzón que archiva
         /// la facturación. El cliente no las ve. Reciben copia también en modo prueba.
         /// Vacío si no se configuró ninguna.
@@ -43,8 +53,21 @@ namespace notificacion_clientes.Configuracion
             var modoPrueba = !bool.TryParse(seccion["ModoPrueba"], out var prueba) || prueba;
             var correoPrueba = seccion["CorreoPrueba"];
 
+            // Las llaves de vendedores son opcionales: sin ellas el proceso se comporta igual que antes,
+            // siguiendo la bandera general. Ponerlas solo sirve para separar los dos procesos.
+            var modoPruebaVendedores = bool.TryParse(seccion["ModoPruebaVendedores"], out var pruebaVendedores)
+                ? pruebaVendedores
+                : modoPrueba;
+
+            var correoPruebaVendedores = string.IsNullOrWhiteSpace(seccion["CorreoPruebaVendedores"])
+                ? correoPrueba
+                : seccion["CorreoPruebaVendedores"];
+
             if (modoPrueba && string.IsNullOrWhiteSpace(correoPrueba))
                 throw new InvalidOperationException("Con 'Smtp:ModoPrueba' activo hay que definir 'Smtp:CorreoPrueba' (variable Smtp__CorreoPrueba)");
+
+            if (modoPruebaVendedores && string.IsNullOrWhiteSpace(correoPruebaVendedores))
+                throw new InvalidOperationException("Con 'Smtp:ModoPruebaVendedores' activo hay que definir 'Smtp:CorreoPruebaVendedores' o 'Smtp:CorreoPrueba' (variable Smtp__CorreoPruebaVendedores)");
 
             return new SmtpSettings
             {
@@ -67,6 +90,10 @@ namespace notificacion_clientes.Configuracion
                 ModoPrueba = modoPrueba,
 
                 CorreoPrueba = correoPrueba,
+
+                ModoPruebaVendedores = modoPruebaVendedores,
+
+                CorreoPruebaVendedores = correoPruebaVendedores,
 
                 CopiaOculta = LeerCopiaOculta(seccion)
             };

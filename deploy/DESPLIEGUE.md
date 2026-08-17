@@ -118,6 +118,7 @@ Valores que **obligatoriamente** cambian respecto al ejemplo:
 | Variable | Producción | Por qué |
 |---|---|---|
 | `Smtp__ModoPrueba` | `false` | Con `true` **ningún cliente recibe nada**: todo se redirige a `Smtp__CorreoPrueba`. Es el interruptor más delicado del sistema. |
+| `Smtp__ModoPruebaVendedores` | `false` | El mismo interruptor, pero solo para la corrida `--vendedores`; se redirige a `Smtp__CorreoPruebaVendedores`. Si se omite, hereda `Smtp__ModoPrueba`, así que sirve para dejar clientes en producción y vendedores en prueba. |
 | `Smtp__Password` | contraseña de aplicación real | En Gmail no es la contraseña del buzón. |
 | `ConnectionStrings__SqlServer` | cadena real | El usuario necesita permisos en `Lito` y `LitoCRM`. |
 | `Bitacora__Ruta` | `/app/Logs` | Ruta absoluta: `Path.Combine` la respeta tal cual y cae en el volumen montado. |

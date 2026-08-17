@@ -3,7 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using notificacion_clientes.Entity;
-using Scriban;
 
 namespace notificacion_clientes.Services
 {
@@ -13,24 +12,12 @@ namespace notificacion_clientes.Services
     /// </summary>
     public class PlantillaService
     {
-        private readonly Lazy<Template> _plantilla;
+        private readonly PlantillaCompilada _plantilla;
         private static readonly CultureInfo Cultura = new("es-MX");
 
         public PlantillaService(string rutaPlantilla)
         {
-            _plantilla = new Lazy<Template>(() =>
-            {
-                if (!File.Exists(rutaPlantilla))
-                    throw new FileNotFoundException($"No se encontró la plantilla del correo en {rutaPlantilla}");
-
-                var plantilla = Template.Parse(File.ReadAllText(rutaPlantilla), rutaPlantilla);
-
-                if (plantilla.HasErrors)
-                    throw new InvalidOperationException(
-                        $"La plantilla {rutaPlantilla} tiene errores: {string.Join("; ", plantilla.Messages)}");
-
-                return plantilla;
-            });
+            _plantilla = new PlantillaCompilada(rutaPlantilla);
         }
 
         public string Renderizar(NotificacionCliente notificacion)
@@ -56,7 +43,7 @@ namespace notificacion_clientes.Services
                 }).ToList()
             };
 
-            return _plantilla.Value.Render(modelo, miembro => miembro.Name);
+            return _plantilla.Renderizar(modelo);
         }
 
         /// <summary>Un solo correo va a varios contactos, así que el saludo es genérico si hay más de uno.</summary>
