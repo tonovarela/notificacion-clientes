@@ -2,8 +2,14 @@
 #
 # Ejecuta una corrida de notificación de facturas dentro de un contenedor.
 #
-#   run.sh clientes     facturas del día a cada cliente        (lunes a viernes, 18:00)
-#   run.sh vendedores   cartera sin ingresar a revisión        (martes y viernes, 09:00)
+#   run.sh clientes            facturas del día a cada cliente      (lunes a viernes, 18:00)
+#   run.sh vendedores          cartera sin ingresar a revisión      (martes y viernes, 09:00)
+#   run.sh cobranza            estado de cuenta vencido             (martes y viernes, 09:00)
+#   run.sh seguimiento         acuses + cierre de vencidos          (lunes a viernes, 10:00)
+#   run.sh revisar-respuestas  sólo la detección, no cierra nada    (manual)
+#
+# Lo que venga después del proceso se le pasa tal cual al contenedor, para poder hacer
+#   run.sh seguimiento --previsualizar
 #
 # El proceso es obligatorio: el ejecutable no hace nada sin --clientes o --vendedores, así que
 # invocarlo sin argumento terminaría en 0 sin mandar un solo correo. Aquí se rechaza de entrada.
@@ -18,6 +24,10 @@ set -uo pipefail
 
 # --- Proceso a ejecutar ------------------------------------------------------
 PROCESO="${1:-}"
+shift 2>/dev/null || true
+
+# Todo lo demás se le pasa al contenedor sin interpretarlo: --previsualizar y lo que venga.
+ARGUMENTOS_EXTRA=("$@")
 
 case "$PROCESO" in
     clientes)
@@ -29,8 +39,21 @@ case "$PROCESO" in
         PREFIJO_BITACORA="revision-vendedores"
         DESCRIPCION="aviso de cartera a vendedores"
         ;;
+    cobranza)
+        PREFIJO_BITACORA="cobranza"
+        DESCRIPCION="estado de cuenta vencido a clientes"
+        ;;
+    seguimiento)
+        PREFIJO_BITACORA="seguimiento"
+        DESCRIPCION="detección de acuses y cierre de vencidos"
+        ;;
+    revisar-respuestas)
+        PREFIJO_BITACORA="seguimiento"
+        DESCRIPCION="revisión de respuestas de clientes"
+        ;;
     *)
-        printf 'uso: %s {clientes|vendedores}\n' "$(basename "$0")" >&2
+        printf 'uso: %s {clientes|vendedores|cobranza|seguimiento|revisar-respuestas} [args...]\n' \
+               "$(basename "$0")" >&2
         exit 64  # EX_USAGE
         ;;
 esac
@@ -49,9 +72,9 @@ ARCHIVO_ENV="${ARCHIVO_ENV:-$BASE/.env}"
 # Las bitácoras quedan aquí, junto al despliegue: es el directorio que se monta en /app/Logs.
 DIRECTORIO_LOGS="${DIRECTORIO_LOGS:-$BASE/logs}"
 
-# Un nombre por proceso: el --name es el candado anti-solapamiento, y si los dos compartieran
-# nombre la corrida de vendedores del viernes a las 9 bloquearía —o sería bloqueada por— la de
-# clientes, que son procesos independientes y sí pueden convivir.
+# Un nombre por proceso: el --name es el candado anti-solapamiento, y si los procesos
+# compartieran nombre la corrida de seguimiento de las 10:00 bloquearía —o sería bloqueada por—
+# la de clientes o la de vendedores, que son independientes y sí pueden convivir.
 NOMBRE_CONTENEDOR="notificacion-clientes-$PROCESO"
 
 # Correo de alerta cuando la corrida falla. Vacío = sin alerta por correo.
@@ -132,7 +155,7 @@ $LIMITADOR docker run --rm \
     --volume "$DIRECTORIO_LOGS:/app/Logs" \
     --memory "$LIMITE_MEMORIA" \
     --cpus "$LIMITE_CPU" \
-    "$IMAGEN" "--$PROCESO"
+    "$IMAGEN" "--$PROCESO" ${ARGUMENTOS_EXTRA[@]+"${ARGUMENTOS_EXTRA[@]}"}
 CODIGO=$?
 
 # 124 es 'timeout' avisando que cortó la corrida. Matar al cliente de docker NO detiene el

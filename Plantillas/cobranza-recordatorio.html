@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>Recordatorio de saldo vencido</title>
+  <style>
+    /* Mismo criterio que las demás plantillas: el logo es texto blanco sobre transparente
+       y sólo se lee sobre la franja azul, así que el azul se fuerza en modo oscuro. */
+    :root { color-scheme: light; supported-color-schemes: light; }
+
+    @media (prefers-color-scheme: dark) {
+      .franja-logo { background-color: #004CA3 !important; }
+      .franja-aviso { background-color: #fdf6e7 !important; }
+    }
+
+    [data-ogsc] .franja-logo,
+    [data-ogsb] .franja-logo { background-color: #004CA3 !important; }
+    [data-ogsc] .franja-aviso,
+    [data-ogsb] .franja-aviso { background-color: #fdf6e7 !important; }
+  </style>
+</head>
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family:Arial, Helvetica, sans-serif; color:#1f2933;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7; padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px; background-color:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #e4e7eb;">
+
+          <tr>
+            <td class="franja-logo" bgcolor="#004CA3" style="background-color:#004CA3; padding:18px 24px;">
+              <img src="cid:logo" alt="Litoprocess" width="228" height="44"
+                   style="display:block; border:0; outline:none; text-decoration:none; width:228px; height:auto; max-width:100%;">
+            </td>
+          </tr>
+
+          <!-- La franja ámbar es lo único que distingue este correo del primero a simple vista:
+               dice, antes de leer nada, que ya hubo un envío previo sin respuesta. -->
+          <tr>
+            <td class="franja-aviso" bgcolor="#fdf6e7" style="background-color:#fdf6e7; padding:20px 32px; border-top:1px solid #f0e3c4; border-bottom:1px solid #f0e3c4;">
+              <p style="margin:0 0 10px; font-size:11px; line-height:1.4; letter-spacing:0.09em; text-transform:uppercase; color:#9a5f14;">Recordatorio &middot; sin respuesta</p>
+              <p style="margin:0; font-size:15px; line-height:1.5; color:#1f2933;">
+                Le escribimos el <strong>{{ fecha_envio_original }}</strong>{{ if dias_desde_envio_original == 1 }}, hace un día{{ else if dias_desde_envio_original > 1 }}, hace {{ dias_desde_envio_original }} días{{ end }}, y no hemos recibido respuesta.
+              </p>
+              <p style="margin:6px 0 0; font-size:13px; color:#9aa5b1;">Cliente {{ cliente }} &middot; corte al {{ fecha_corte }}</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:28px 32px 8px;">
+              <p style="margin:0 0 2px; font-size:15px; line-height:1.6;">
+                Estimado(a) {{ saludo }}:
+              </p>
+              <p style="margin:0 0 16px; font-size:15px; line-height:1.5; color:#1f2933; font-weight:bold;">
+                {{ razon_social }}
+              </p>
+              <p style="margin:0 0 20px; font-size:15px; line-height:1.6;">
+                {{ if total_facturas == 1 }}La factura sigue{{ else }}Las {{ total_facturas }} facturas siguen{{ end }} con saldo vencido en nuestros registros.{{ if dias_vencido_maximo > 0 }} {{ if total_facturas == 1 }}Acumula ya {{ dias_vencido_maximo }} días desde su vencimiento.{{ else }}La más antigua acumula ya {{ dias_vencido_maximo }} días desde su vencimiento.{{ end }}{{ end }}
+              </p>
+              <p style="margin:0 0 20px; font-size:15px; line-height:1.6;">
+                Le reiteramos la solicitud: <strong>le agradeceremos confirmarnos la fecha programada de pago</strong> respondiendo a este mismo correo. Si algún documento tiene una aclaración pendiente, indíquenoslo y lo revisamos de inmediato.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0 32px 8px;">
+              <p style="margin:0 0 10px; font-size:12px; line-height:1.4; letter-spacing:0.06em; text-transform:uppercase; color:#9aa5b1;">Detalle actualizado al día de hoy</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:14px;">
+                <thead>
+                  <tr>
+                    <th align="left" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Factura</th>
+                    <th align="left" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Vence</th>
+                    <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Días</th>
+                    <th align="right" style="padding:10px 8px; border-bottom:2px solid #e4e7eb; color:#52606d; font-size:12px; text-transform:uppercase; letter-spacing:0.04em;">Vencido</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{ for factura in facturas }}
+                  <tr>
+                    <td style="padding:12px 8px; border-bottom:1px solid #f0f2f5;">
+                      {{ factura.factura }}
+                      <span style="display:block; font-size:12px; color:#9aa5b1;">{{ factura.condicion }}</span>
+                    </td>
+                    <td style="padding:12px 8px; border-bottom:1px solid #f0f2f5; color:#52606d;">{{ factura.vencimiento }}</td>
+                    <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums; {{ if factura.dias_vencido > 60 }}color:#9c332b; font-weight:bold;{{ else }}color:#52606d;{{ end }}">{{ factura.dias_vencido }}</td>
+                    <td align="right" style="padding:12px 8px; border-bottom:1px solid #f0f2f5; font-variant-numeric:tabular-nums;">{{ factura.total_vencido }}</td>
+                  </tr>
+                  {{ end }}
+                </tbody>
+                <tfoot>
+                  {{ for saldo in saldos }}
+                  <tr>
+                    <td colspan="3" align="right" style="padding:10px 8px; font-weight:bold; border-top:2px solid #e4e7eb;">Total vencido {{ saldo.moneda }}</td>
+                    <td align="right" style="padding:10px 8px; font-weight:bold; font-variant-numeric:tabular-nums; border-top:2px solid #e4e7eb;">{{ saldo.total }}</td>
+                  </tr>
+                  {{ end }}
+                </tfoot>
+              </table>
+              <p style="margin:10px 0 0; font-size:12px; line-height:1.5; color:#9aa5b1;">
+                Este detalle ya considera los pagos aplicados a la fecha, por lo que puede diferir del que le enviamos el {{ fecha_envio_original }}.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:16px 32px 32px;">
+              <p style="margin:0; font-size:14px; line-height:1.6; color:#52606d;">
+                {{ if agente }}Su asesor {{ agente }} y el área de cobranza quedan a sus órdenes para cualquier aclaración.{{ else }}El área de cobranza queda a sus órdenes para cualquier aclaración.{{ end }}
+              </p>
+              <p style="margin:12px 0 0; font-size:13px; line-height:1.6; color:#9aa5b1;">
+                Si ya realizó el pago o ya nos respondió por otro medio, le pedimos una disculpa por la insistencia y le agradeceremos compartirnos el comprobante.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

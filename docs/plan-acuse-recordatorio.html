@@ -132,6 +132,17 @@
     color: var(--ink-faint);
     margin-top: 4px;
   }
+  .revision {
+    margin: 18px 0 0;
+    padding: 12px 16px;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    color: var(--ink-soft);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: var(--measure);
+  }
   .ficha b { color: var(--ink-soft); font-weight: 500; }
 
   /* ---------- Secciones ---------- */
@@ -400,7 +411,9 @@
       <span><b>Rama</b> main · 4efcaf8</span>
       <span><b>Stack</b> .NET 8 · MailKit · Dapper · Scriban</span>
       <span><b>Esfuerzo</b> ~3 días de trabajo</span>
+      <span><b>Revisado</b> 18 ago 2026</span>
     </div>
+    <p class="revision"><b>Revisión del 18 de agosto de 2026.</b> Dos cambios sobre el plan original: la persistencia se movió a una base propia, <code>CorreosCXC</code>, en vez del esquema <code>notif</code> dentro de <code>Lito</code>; y el schedule es <b>sólo cron</b>, ya no <code>systemd timer</code>. El resto del plan no cambia.</p>
   </header>
 
   <section>
@@ -408,8 +421,8 @@
     <div class="decisiones">
       <div class="decision">
         <span class="rotulo">Persistencia</span>
-        <span class="valor">Tablas propias en SQL Server</span>
-        <span class="nota">Esquema <code>notif</code> en la base de la cadena de conexión. Consultable desde el ERP, sobrevive al contenedor.</span>
+        <span class="valor">Base propia <code>CorreosCXC</code></span>
+        <span class="nota">Esquema <code>notif</code> en una base aparte, no dentro de <code>Lito</code>: son datos de la aplicación de correos, no del ERP. Consultable desde el ERP y sobrevive al contenedor.</span>
       </div>
       <div class="decision">
         <span class="rotulo">Detección</span>
@@ -426,7 +439,7 @@
 
   <section>
     <h2>Ciclo de vida de un envío</h2>
-    <p>Cada correo que sale queda como un renglón en <code>notif.Envio</code> y se mueve por estos estados. El recordatorio nace como un renglón nuevo ligado al original, así que la evidencia de los dos intentos queda separada pero relacionada.</p>
+    <p>Cada correo que sale queda como un renglón en <code>CorreosCXC.notif.Envio</code> y se mueve por estos estados. El recordatorio nace como un renglón nuevo ligado al original, así que la evidencia de los dos intentos queda separada pero relacionada.</p>
     <div class="flujo-envoltura">
       <div class="flujo">
         <span class="nodo activo">ENVIADO</span>
@@ -457,7 +470,7 @@
 
     <div class="aviso alto">
       <div class="titulo">En modo prueba nadie puede contestar <span class="sev alto">bloqueante</span></div>
-      <p>Con <code>Smtp:ModoPrueba</code> activo todo se redirige al buzón de pruebas, así que el cliente real nunca ve el correo. Si el seguimiento no distingue esos envíos, <b>cada ensayo genera un pendiente que a los N días manda un recordatorio de verdad</b>. Por eso <code>notif.Envio</code> guarda la columna <code>ModoPrueba</code> y la consulta de pendientes la excluye.</p>
+      <p>Con <code>Smtp:ModoPrueba</code> activo todo se redirige al buzón de pruebas, así que el cliente real nunca ve el correo. Si el seguimiento no distingue esos envíos, <b>cada ensayo genera un pendiente que a los N días manda un recordatorio de verdad</b>. Por eso <code>CorreosCXC.notif.Envio</code> guarda la columna <code>ModoPrueba</code> y la consulta de pendientes la excluye.</p>
     </div>
 
     <div class="aviso medio">
@@ -488,9 +501,17 @@
       <article class="fase">
         <div class="indice">FASE 01<br>~4 h</div>
         <div class="cuerpo">
-          <h3>Persistencia: el esquema <code>notif</code></h3>
+          <h3>Persistencia: la base <code>CorreosCXC</code></h3>
           <p>Un script idempotente que el DBA pueda leer de corrido y correr dos veces sin daño. Va en el repo y se documenta en <code>DESPLIEGUE.md</code> como paso previo a la primera corrida.</p>
+          <p>El seguimiento vive en <b>su propia base</b>. La cadena de conexión sigue apuntando a <code>Lito</code> —de ahí salen las facturas— y la aplicación llega por nombre de tres partes (<code>CorreosCXC.notif.Envio</code>), la misma convención que ya usa <code>FacturaDAO</code> para <code>LITOCRM</code> y <code>etl_mstr</code>. El script se cambia solo a su base, así que se corre sin <code>-d</code>.</p>
 <pre><code><span class="c-com">-- deploy/sql/001-seguimiento.sql</span>
+<span class="c-key">IF</span> DB_ID(<span class="c-str">'CorreosCXC'</span>) <span class="c-key">IS NULL</span>
+    <span class="c-key">CREATE DATABASE</span> CorreosCXC;
+<span class="c-key">GO</span>
+
+<span class="c-key">USE</span> CorreosCXC;
+<span class="c-key">GO</span>
+
 <span class="c-key">IF</span> SCHEMA_ID(<span class="c-str">'notif'</span>) <span class="c-key">IS NULL</span> <span class="c-key">EXEC</span>(<span class="c-str">'CREATE SCHEMA notif'</span>);
 <span class="c-key">GO</span>
 
@@ -556,7 +577,7 @@
 mensaje.MessageId = MimeUtils.GenerateMessageId(_settings.RemitenteEmail.Split(<span class="c-str">'@'</span>)[1]);
 mensaje.Headers.Add(<span class="c-str">"X-Notificacion-Id"</span>, token.ToString(<span class="c-str">"N"</span>));</code></pre>
           <p><code>ResultadoEnvio</code> gana <code>MessageId</code>, <code>Token</code> y <code>Asunto</code>; el registro en base ocurre después de <code>Enviar</code>, dentro del mismo <code>try</code> que ya escribe la bitácora, para que un fallo al guardar no deje correos enviados sin rastro.</p>
-          <p><b>Idempotencia.</b> Antes de armar el correo se consulta <code>YaNotificada(cliente, movId)</code>: si esa factura ya salió en un envío que no está <code>FALLIDO</code>, no se vuelve a incluir. Es la red de seguridad contra una doble corrida del timer o un rango de fechas mal puesto.</p>
+          <p><b>Idempotencia.</b> Antes de armar el correo se consulta <code>YaNotificada(cliente, movId)</code>: si esa factura ya salió en un envío que no está <code>FALLIDO</code>, no se vuelve a incluir. Es la red de seguridad contra una doble corrida del schedule o un rango de fechas mal puesto.</p>
           <div class="manifiesto">
             <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Services/CorreoService.cs</span> <span class="que">— Message-Id propio, header de token, ResultadoEnvio ampliado</span></span></div>
             <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Program.cs</span> <span class="que">— registrar el envío tras enviar</span></span></div>
@@ -634,7 +655,7 @@ mensaje.Headers.Add(<span class="c-str">"X-Notificacion-Id"</span>, token.ToStri
         <div class="indice">FASE 05<br>~5 h</div>
         <div class="cuerpo">
           <h3>El recordatorio</h3>
-          <p>Se seleccionan los envíos en <code>ENVIADO</code>, con <code>ModoPrueba = 0</code>, <code>Intento = 1</code> y más de <code>DiasEspera</code> días encima. Para cada uno se vuelven a descargar del API los XML y PDF de los <code>MovID</code> guardados en <code>notif.EnvioFactura</code> —el cliente probablemente nunca los abrió, mandarlo sin adjuntos lo obligaría a buscar el correo anterior— y se arma un mensaje nuevo <b>dentro del hilo original</b>:</p>
+          <p>Se seleccionan los envíos en <code>ENVIADO</code>, con <code>ModoPrueba = 0</code>, <code>Intento = 1</code> y más de <code>DiasEspera</code> días encima. Para cada uno se vuelven a descargar del API los XML y PDF de los <code>MovID</code> guardados en <code>CorreosCXC.notif.EnvioFactura</code> —el cliente probablemente nunca los abrió, mandarlo sin adjuntos lo obligaría a buscar el correo anterior— y se arma un mensaje nuevo <b>dentro del hilo original</b>:</p>
 <pre><code>mensaje.Subject = <span class="c-str">$"Re: {envio.Asunto}"</span>;
 mensaje.InReplyTo = envio.MessageId;
 mensaje.References.Add(envio.MessageId);</code></pre>
@@ -660,20 +681,26 @@ mensaje.References.Add(envio.MessageId);</code></pre>
             <table>
               <thead><tr><th>Comando</th><th>Qué hace</th><th class="num">Agenda</th></tr></thead>
               <tbody>
-                <tr><td>(sin args)</td><td>Envía las facturas del día y registra cada envío. Es el comportamiento actual más la Fase 2.</td><td class="num">L–V 19:00</td></tr>
+                <tr><td>--clientes</td><td>Envía las facturas del día y registra cada envío. Es el comportamiento actual más la Fase 2.</td><td class="num">L–V 18:00</td></tr>
+                <tr><td>--vendedores</td><td>Cartera sin ingresar a revisión, a cada vendedor. No entra al seguimiento.</td><td class="num">Mar y vie 09:00</td></tr>
                 <tr><td>--seguimiento</td><td>Concilia respuestas y manda los recordatorios que toquen, en una sola pasada.</td><td class="num">L–V 10:00</td></tr>
                 <tr><td>--revisar-respuestas</td><td>Solo la conciliación. Para correr a mano y ver qué detecta sin mandar nada.</td><td class="num">manual</td></tr>
                 <tr><td>--recordatorios</td><td>Solo los reenvíos. Útil para reintentar si el SMTP falló a media pasada.</td><td class="num">manual</td></tr>
-                <tr><td>--previsualizar</td><td>Genera el HTML en disco sin enviar. Ya existe comentado en <code>Program.cs:37</code>; se descomenta.</td><td class="num">manual</td></tr>
+                <tr><td>--previsualizar</td><td>Genera el HTML en disco sin enviar. Modificador de los anteriores, no un comando suelto.</td><td class="num">manual</td></tr>
               </tbody>
             </table>
           </div>
+          <p><b>El schedule es cron, y sólo cron.</b> Se agenda como una línea más en el crontab del usuario <code>notificaciones</code>, junto a las dos que ya existen:</p>
+<pre><code><span class="c-com"># Acuses y recordatorios — lunes a viernes 10:00</span>
+0 10 * * 1-5 /home/docker/notificacion-clientes/run.sh seguimiento &gt;&gt; /home/docker/notificacion-clientes/logs/cron.log 2&gt;&amp;1</code></pre>
+          <p>La hora no es arbitraria: va <b>después</b> de que la gente abrió su correo por la mañana y <b>antes</b> del envío de las 18:00. Correrlo de madrugada contaría como "sin respuesta" a quien contestó la noche anterior y todavía no aparecía en el buzón.</p>
           <p><b>Dos detalles del despliegue que hay que tocar.</b> <code>run.sh</code> pasa los argumentos al contenedor con <code>"$@"</code>; y el <code>--name</code> fijo, que hoy es el anti-solapamiento, tiene que variar por comando —<code>notificacion-clientes-seguimiento</code>— porque si no, la corrida de las 10:00 se bloquearía contra un contenedor de envío que siguiera vivo, y viceversa.</p>
+          <p><b>Lo que cron no trae y hay que resolver en <code>run.sh</code>:</b> el tope de duración. Una corrida colgada en el SMTP seguiría viva a la hora de la siguiente y su <code>--name</code> la bloquearía en cadena. Se envuelve el <code>docker run</code> en <code>timeout</code> y, al cortar, se borra el contenedor: matar al cliente de docker no detiene el contenedor. Cron tampoco recupera disparos perdidos, así que la alerta por ausencia —el ping de monitoreo— es lo único que detecta que la corrida nunca ocurrió.</p>
           <div class="manifiesto">
             <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">Program.cs</span> <span class="que">— despacho por argumento</span></span></div>
             <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">Comandos/</span> <span class="que">— una clase por comando</span></span></div>
-            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">deploy/run.sh</span> <span class="que">— "$@" y nombre de contenedor por comando</span></span></div>
-            <div class="archivo"><span class="marca nuevo">nuevo</span><span><span class="ruta">deploy/notificacion-seguimiento.service</span> <span class="que">— y su .timer, L–V 10:00</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">deploy/run.sh</span> <span class="que">— "$@", nombre de contenedor por comando y tope de duración</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">crontab del servidor</span> <span class="que">— una línea más, L–V 10:00</span></span></div>
           </div>
         </div>
       </article>
@@ -701,7 +728,7 @@ mensaje.References.Add(envio.MessageId);</code></pre>
             <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">appsettings.example.json</span> <span class="que">— secciones Imap y Seguimiento</span></span></div>
             <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">.env.example</span> <span class="que">— equivalentes con __</span></span></div>
             <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">README.md</span> <span class="que">— sección de seguimiento</span></span></div>
-            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">deploy/DESPLIEGUE.md</span> <span class="que">— script SQL y segundo timer</span></span></div>
+            <div class="archivo"><span class="marca cambia">cambia</span><span><span class="ruta">deploy/DESPLIEGUE.md</span> <span class="que">— script SQL y la línea nueva del crontab</span></span></div>
           </div>
         </div>
       </article>
@@ -737,8 +764,13 @@ mensaje.References.Add(envio.MessageId);</code></pre>
           </tr>
           <tr>
             <td>Permisos en la BD</td>
-            <td>El usuario de la aplicación hoy solo lee; el esquema <code>notif</code> necesita escritura.</td>
-            <td>Acordarlo con el DBA antes de la Fase 1. Es el único requisito externo del plan.</td>
+            <td>El usuario de la aplicación hoy solo lee, y necesita escritura en <code>CorreosCXC</code>. Al ser otra base, no basta con el permiso que ya tiene en <code>Lito</code>: hace falta un usuario ahí.</td>
+            <td>Acordarlo con el DBA antes de la Fase 1. Es el único requisito externo del plan. El script trae comentado el <code>CREATE USER</code> y los dos <code>ALTER ROLE</code>.</td>
+          </tr>
+          <tr>
+            <td>Transacción entre bases</td>
+            <td><code>Registrar</code> escribe en <code>CorreosCXC</code> desde una conexión abierta contra <code>Lito</code>. Si algún día quedaran en instancias distintas, pasaría a requerir MSDTC y fallaría al escribir.</td>
+            <td>Mientras vivan en la misma instancia es una transacción local normal. Queda anotado en el DAO para que no sorprenda en una migración.</td>
           </tr>
         </tbody>
       </table>
@@ -751,6 +783,6 @@ mensaje.References.Add(envio.MessageId);</code></pre>
     <p>Sugerencia para la puesta en producción: correr las Fases 1 a 3 con <code>Smtp:ModoPrueba</code> en <code>true</code> durante una semana. El registro y la conciliación funcionan igual, los recordatorios no salen porque la consulta excluye los envíos de prueba, y se alcanza a ver si el cruce de respuestas acierta antes de que le llegue nada a un cliente.</p>
   </section>
 
-  <p class="pie">Plan sobre notificacion-clientes @ 4efcaf8 · 17 de agosto de 2026<br>Decisiones fijadas: tablas en SQL Server · IMAP sobre el buzón remitente · un solo recordatorio.</p>
+  <p class="pie">Plan sobre notificacion-clientes @ 4efcaf8 · 17 de agosto de 2026 · revisado el 18 de agosto de 2026<br>Decisiones fijadas: base propia <code>CorreosCXC</code> · IMAP sobre el buzón remitente · un solo recordatorio.</p>
 
 </div>

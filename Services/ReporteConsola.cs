@@ -74,6 +74,52 @@ namespace notificacion_clientes.Services
             }
         }
 
+        public void ImprimirCobranza(ResultadoCobranza cobranza)
+        {
+            Console.WriteLine($"Se encontraron {cobranza.Notificaciones.Count} clientes con saldo vencido por notificar.");
+
+            if (cobranza.ExcluidosPorRespuesta.Count > 0)
+                Console.WriteLine($"Se excluyeron {cobranza.ExcluidosPorRespuesta.Count} que ya contestaron esta semana: " +
+                                  string.Join(", ", cobranza.ExcluidosPorRespuesta.Select(n => n.Cliente)));
+
+            foreach (var notificacion in cobranza.Notificaciones)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Cliente: {notificacion.Cliente} - {notificacion.RazonSocial}" +
+                                  $" | Facturas: {notificacion.TotalFacturas}" +
+                                  $" | Máx. vencida: {notificacion.DiasVencidoMaximo} días");
+                Console.WriteLine($"  Saldo vencido: {string.Join(" + ", notificacion.Saldos.Select(sa => $"{sa.Total:N2} {sa.Moneda}"))}");
+
+                foreach (var contacto in notificacion.Contactos)
+                    Console.WriteLine($"  Contacto: {contacto.NombreConTratamiento} ({contacto.Cargo}) <{contacto.Email}>");
+            }
+
+        }
+
+        /// <summary>Lo que se ve en pantalla al correr el seguimiento.</summary>
+        public void ImprimirSeguimiento(ResultadoSeguimiento resultado)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Envíos revisados contra el buzón: {resultado.Conciliados}");
+            Console.WriteLine($"Acuses detectados: {resultado.Respuestas.Count} | Rebotes: {resultado.Rebotes.Count}");
+
+            foreach (var respuesta in resultado.Respuestas)
+                Console.WriteLine($"  CONTESTADO {respuesta.Envio.Cliente} - {respuesta.Envio.RazonSocial}" +
+                                  $" | {respuesta.DeEmail} el {respuesta.Fecha:dd/MM/yyyy HH:mm}");
+
+            foreach (var rebote in resultado.Rebotes)
+                Console.WriteLine($"  REBOTE {rebote.Envio.Cliente}: {rebote.Envio.Destinatarios} — corregir en el CRM");
+
+            if (resultado.Cerrados.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine($"Cobranza cerrada sin respuesta ({resultado.Cerrados.Count}):");
+
+                foreach (var envio in resultado.Cerrados)
+                    Console.WriteLine($"  {envio.Cliente} - {envio.RazonSocial} | enviado el {envio.FechaEnvio:dd/MM/yyyy}");
+            }
+        }
+
         private static string Describir(ArchivoFactura? archivo) =>
             archivo is null ? "no disponible" : $"{archivo.NombreArchivo} ({archivo.Tamanio} bytes)";
     }

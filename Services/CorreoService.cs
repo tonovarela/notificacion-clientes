@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using MimeKit.Utils;
 using notificacion_clientes.Configuracion;
 using notificacion_clientes.Entity;
 
@@ -21,20 +22,29 @@ namespace notificacion_clientes.Services
         /// <summary>Identificador con el que la plantilla referencia el logo: src="cid:logo".</summary>
         private const string ContentIdLogo = "logo";
 
+        /// <summary>
+        /// Header propio con un GUID por correo. El Message-Id lo puede reescribir el servidor
+        /// de salida; éste no lo toca nadie, así que es con lo que se reconcilia si algo no casa.
+        /// </summary>
+        public const string HeaderToken = "X-Notificacion-Id";
+
         private readonly SmtpSettings _settings;
         private readonly PlantillaService _plantillaService;
         private readonly PlantillaVendedorService _plantillaVendedorService;
+        private readonly PlantillaCobranzaService _plantillaCobranzaService;
         private readonly string _rutaLogo;
 
         public CorreoService(
             SmtpSettings settings,
             PlantillaService plantillaService,
             PlantillaVendedorService plantillaVendedorService,
+            PlantillaCobranzaService plantillaCobranzaService,
             string rutaLogo)
         {
             _settings = settings;
             _plantillaService = plantillaService;
             _plantillaVendedorService = plantillaVendedorService;
+            _plantillaCobranzaService = plantillaCobranzaService;
             _rutaLogo = rutaLogo;
         }
 
@@ -53,6 +63,12 @@ namespace notificacion_clientes.Services
             IReadOnlyList<NotificacionVendedor> notificaciones,
             CancellationToken cancelacion = default) =>
             EnviarLote(notificaciones, n => n.Email, ArmarMensajeVendedor, cancelacion);
+
+        /// <summary>Un correo por cliente con su estado de cuenta vencido. Sin adjuntos.</summary>
+        public Task<IReadOnlyList<ResultadoEnvio>> EnviarCobranza(
+            IReadOnlyList<NotificacionCobranza> notificaciones,
+            CancellationToken cancelacion = default) =>
+            EnviarLote(notificaciones, n => n.Cliente, ArmarMensajeCobranza, cancelacion);
 
         /// <summary>
         /// Abre una sola conexión SMTP para todo el lote y manda un correo por elemento.
@@ -88,9 +104,12 @@ namespace notificacion_clientes.Services
             {
                 var clave = obtenerClave(notificacion);
 
+                // Fuera del try: el catch lo necesita para registrar qué correo fue el que falló.
+                MimeMessage? mensaje = null;
+
                 try
                 {
-                    var mensaje = armarMensaje(notificacion, copiaOculta);
+                    mensaje = armarMensaje(notificacion, copiaOculta);
 
                     if (mensaje.To.Count == 0)
                     {
@@ -102,11 +121,14 @@ namespace notificacion_clientes.Services
                     resultados.Add(ResultadoEnvio.Exitoso(
                         clave,
                         mensaje.To.Mailboxes.Select(m => m.Address).ToList(),
-                        mensaje.Bcc.Mailboxes.Select(m => m.Address).ToList()));
+                        mensaje.Bcc.Mailboxes.Select(m => m.Address).ToList(),
+                        Identificar(mensaje)));
                 }
                 catch (Exception ex)
                 {
-                    resultados.Add(ResultadoEnvio.Fallido(clave, ex.Message));
+                    // El identificador se conserva también al fallar: el envío se registra como
+                    // FALLIDO y sin él no habría con qué relacionarlo si después aparece un rebote.
+                    resultados.Add(ResultadoEnvio.Fallido(clave, ex.Message, Identificar(mensaje)));
                 }
             }
 
@@ -169,6 +191,8 @@ namespace notificacion_clientes.Services
             mensaje.From.Add(new MailboxAddress(_settings.RemitenteNombre, _settings.RemitenteEmail));
             mensaje.Subject = $"Facturas del día - {notificacion.RazonSocial}";
 
+            Sellar(mensaje);
+
             foreach (var destinatario in ObtenerDestinatarios(notificacion))
                 mensaje.To.Add(destinatario);
 
@@ -195,6 +219,10 @@ namespace notificacion_clientes.Services
             mensaje.From.Add(new MailboxAddress(_settings.RemitenteNombre, _settings.RemitenteEmail));
             mensaje.Subject = $"Facturas pendientes de ingresar a revisión - {notificacion.Vendedor}";
 
+            // El aviso a vendedores no entra al seguimiento, pero se sella igual: si no, MimeKit
+            // genera el Message-Id con el nombre de la máquina, que no tiene por qué salir del host.
+            Sellar(mensaje);
+
             foreach (var destinatario in ObtenerDestinatariosVendedor(notificacion))
                 mensaje.To.Add(destinatario);
 
@@ -209,6 +237,64 @@ namespace notificacion_clientes.Services
             mensaje.Body = cuerpo.ToMessageBody();
 
             return mensaje;
+        }
+
+        private MimeMessage ArmarMensajeCobranza(NotificacionCobranza notificacion, IReadOnlyList<MailboxAddress> copiaOculta)
+        {
+            var mensaje = new MimeMessage();
+            mensaje.From.Add(new MailboxAddress(_settings.RemitenteNombre, _settings.RemitenteEmail));
+
+            // El correo del viernes cuelga del hilo del martes: al cliente le llega como
+            // continuación de la conversación y no como un segundo correo suelto. Los headers
+            // In-Reply-To y References son además lo que hace que su respuesta caiga en la misma
+            // cadena, que es justo lo que sabe leer la conciliación.
+            if (notificacion.EnvioOriginal is { } original)
+            {
+                mensaje.Subject = original.Asunto.StartsWith("Re:", StringComparison.OrdinalIgnoreCase)
+                    ? original.Asunto
+                    : $"Re: {original.Asunto}";
+
+                Sellar(mensaje);
+
+                mensaje.InReplyTo = original.MessageId;
+                mensaje.References.Add(original.MessageId);
+            }
+            else
+            {
+                mensaje.Subject = $"Estado de cuenta con saldo vencido - {notificacion.RazonSocial}";
+                Sellar(mensaje);
+            }
+
+            foreach (var destinatario in ObtenerDestinatariosCobranza(notificacion))
+                mensaje.To.Add(destinatario);
+
+            foreach (var copia in copiaOculta)
+                mensaje.Bcc.Add(copia);
+
+            var cuerpo = new BodyBuilder { HtmlBody = _plantillaCobranzaService.Renderizar(notificacion) };
+
+            IncrustarLogo(cuerpo);
+
+            // El estado de cuenta va completo en el cuerpo: aquí no se adjunta ningún CFDI.
+            mensaje.Body = cuerpo.ToMessageBody();
+
+            return mensaje;
+        }
+
+        /// <summary>En modo prueba todo se redirige al buzón de pruebas, nunca al cliente.</summary>
+        private IEnumerable<MailboxAddress> ObtenerDestinatariosCobranza(NotificacionCobranza notificacion)
+        {
+            if (_settings.ModoPrueba)
+            {
+                yield return CorreoDePrueba();
+                yield break;
+            }
+
+            foreach (var contacto in notificacion.Contactos)
+            {
+                if (Parsear(contacto.Email) is { } direccion)
+                    yield return direccion;
+            }
         }
 
         /// <summary>
@@ -243,6 +329,52 @@ namespace notificacion_clientes.Services
             }
         }
 
+        /// <summary>
+        /// Le fija al mensaje su identidad antes de enviarlo. Dos datos, a propósito redundantes:
+        ///
+        ///   Message-Id  el que usa el cliente al contestar (In-Reply-To). Es la llave del cruce,
+        ///               pero el servidor de salida lo puede reemplazar al aceptar el mensaje.
+        ///   token       header propio que ningún servidor toca. Si el Message-Id se reescribe,
+        ///               es lo único que sigue relacionando el correo con su renglón en la base.
+        ///
+        /// Se fija aquí y no se deja al azar porque MimeKit genera uno solo, en silencio, al
+        /// serializar: nos enteraríamos del valor después de enviarlo.
+        /// </summary>
+        private void Sellar(MimeMessage mensaje)
+        {
+            mensaje.MessageId = MimeUtils.GenerateMessageId(DominioRemitente());
+            mensaje.Headers.Add(HeaderToken, Guid.NewGuid().ToString("N"));
+        }
+
+        /// <summary>
+        /// El dominio del remitente, para que el Message-Id no delate el nombre de la máquina,
+        /// que es lo que MimeKit usa si no se le dice otra cosa.
+        /// </summary>
+        private string DominioRemitente()
+        {
+            var partes = _settings.RemitenteEmail.Split('@');
+            return partes.Length == 2 && !string.IsNullOrWhiteSpace(partes[1])
+                ? partes[1]
+                : "localhost";
+        }
+
+        /// <summary>Lee del mensaje ya armado los tres datos con que se le sigue la pista después.</summary>
+        private static IdentidadMensaje Identificar(MimeMessage? mensaje)
+        {
+            if (mensaje is null)
+                return new IdentidadMensaje { MessageId = null, Token = null, Asunto = null };
+
+            var token = mensaje.Headers[HeaderToken];
+
+            return new IdentidadMensaje
+            {
+                // MimeKit expone el Message-Id sin los <>, que es como se guarda en la base.
+                MessageId = mensaje.MessageId,
+                Token = Guid.TryParseExact(token, "N", out var guid) ? guid : null,
+                Asunto = mensaje.Subject
+            };
+        }
+
         private MailboxAddress CorreoDePrueba() =>
             MailboxAddress.Parse(_settings.CorreoPrueba
                 ?? throw new InvalidOperationException("Falta 'Smtp:CorreoPrueba' en appsettings.json"));
@@ -261,6 +393,16 @@ namespace notificacion_clientes.Services
         }
     }
 
+    /// <summary>Los tres datos con que un correo enviado se vuelve a encontrar después.</summary>
+    public class IdentidadMensaje
+    {
+        public required string? MessageId { get; init; }
+
+        public required Guid? Token { get; init; }
+
+        public required string? Asunto { get; init; }
+    }
+
     public class ResultadoEnvio
     {
         /// <summary>A quién iba el correo: el número de cliente, o el correo del vendedor en la cartera.</summary>
@@ -275,13 +417,40 @@ namespace notificacion_clientes.Services
 
         public string? Error { get; init; }
 
+        /// <summary>Message-Id con el que salió el correo. Es la llave del cruce con las respuestas.</summary>
+        public string? MessageId { get; init; }
+
+        /// <summary>El GUID que viajó en el header X-Notificacion-Id.</summary>
+        public Guid? Token { get; init; }
+
+        /// <summary>Asunto tal como se envió; el recordatorio lo reutiliza para quedarse en el hilo.</summary>
+        public string? Asunto { get; init; }
+
         public static ResultadoEnvio Exitoso(
             string cliente,
             IReadOnlyList<string> destinatarios,
-            IReadOnlyList<string> copiaOculta) =>
-            new() { Cliente = cliente, Enviado = true, Destinatarios = destinatarios, CopiaOculta = copiaOculta };
+            IReadOnlyList<string> copiaOculta,
+            IdentidadMensaje identidad) =>
+            new()
+            {
+                Cliente = cliente,
+                Enviado = true,
+                Destinatarios = destinatarios,
+                CopiaOculta = copiaOculta,
+                MessageId = identidad.MessageId,
+                Token = identidad.Token,
+                Asunto = identidad.Asunto
+            };
 
-        public static ResultadoEnvio Fallido(string cliente, string error) =>
-            new() { Cliente = cliente, Enviado = false, Error = error };
+        public static ResultadoEnvio Fallido(string cliente, string error, IdentidadMensaje? identidad = null) =>
+            new()
+            {
+                Cliente = cliente,
+                Enviado = false,
+                Error = error,
+                MessageId = identidad?.MessageId,
+                Token = identidad?.Token,
+                Asunto = identidad?.Asunto
+            };
     }
 }

@@ -32,6 +32,24 @@ namespace notificacion_clientes.Configuracion
         /// <summary>Directorio donde queda la bitácora de cada ejecución.</summary>
         public required string RutaBitacora { get; init; }
 
+        /// <summary>Lectura del buzón para detectar respuestas de los clientes.</summary>
+        public required ImapSettings Imap { get; init; }
+
+        /// <summary>Política de acuse y recordatorio.</summary>
+        public required SeguimientoSettings Seguimiento { get; init; }
+
+        /// <summary>
+        /// Cuántos días hacia atrás incluye la consulta de facturas. 0 = sólo las de hoy.
+        /// Ampliarlo hace que una misma factura se notifique en varias corridas.
+        /// </summary>
+        public required int DiasAtrasFacturas { get; init; }
+
+        /// <summary>Ruta absoluta de la plantilla HTML del estado de cuenta vencido (martes).</summary>
+        public required string RutaPlantillaCobranza { get; init; }
+
+        /// <summary>Ruta absoluta de la plantilla del recordatorio de cobranza (viernes).</summary>
+        public required string RutaPlantillaCobranzaRecordatorio { get; init; }
+
         public static AppSettings Cargar()
         {
             // El archivo es opcional: dentro del contenedor toda la configuración llega por variables de entorno.
@@ -40,6 +58,9 @@ namespace notificacion_clientes.Configuracion
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
                 .AddEnvironmentVariables()
                 .Build();
+
+            // Se resuelve antes del objeto porque Imap hereda de aquí usuario y contraseña.
+            var smtp = SmtpSettings.Cargar(configuracion);
 
             return new AppSettings
             {
@@ -53,11 +74,27 @@ namespace notificacion_clientes.Configuracion
                     ? segundos
                     : 60,
 
-                Smtp = SmtpSettings.Cargar(configuracion),
+                Smtp = smtp,
+
+                Imap = ImapSettings.Cargar(configuracion, smtp),
+
+                Seguimiento = SeguimientoSettings.Cargar(configuracion),
+
+                DiasAtrasFacturas = int.TryParse(configuracion["Facturas:DiasAtras"], out var diasAtras)
+                    ? diasAtras
+                    : 0,
 
                 RutaPlantilla = Path.Combine(
                     AppContext.BaseDirectory,
                     configuracion["Correo:Plantilla"] ?? Path.Combine("Plantillas", "notificacion-cliente.html")),
+
+                RutaPlantillaCobranza = Path.Combine(
+                    AppContext.BaseDirectory,
+                    configuracion["Correo:PlantillaCobranza"] ?? Path.Combine("Plantillas", "cobranza-vencida.html")),
+
+                RutaPlantillaCobranzaRecordatorio = Path.Combine(
+                    AppContext.BaseDirectory,
+                    configuracion["Correo:PlantillaCobranzaRecordatorio"] ?? Path.Combine("Plantillas", "cobranza-recordatorio.html")),
 
                 RutaPlantillaVendedor = Path.Combine(
                     AppContext.BaseDirectory,

@@ -9,17 +9,22 @@ vez a los que no respondieron.
 
 Plan sobre el commit `4efcaf8`. Esfuerzo estimado: ~3 días.
 
+> **Revisión del 18 de agosto de 2026.** Dos cambios sobre el plan original:
+> la persistencia se movió a una base propia, `CorreosCXC`, en vez del esquema `notif` dentro de
+> `Lito` (ver la decisión de abajo y la Fase 1); y el schedule es **sólo cron**, ya no
+> `systemd timer` (ver la Fase 6). El resto del plan no cambia.
+
 ## Decisiones tomadas
 
 | Tema | Decisión | Por qué |
 |---|---|---|
-| Persistencia | Tablas propias en SQL Server, esquema `notif` | Consultable desde el ERP y sobrevive al contenedor. La bitácora de hoy es texto plano y no se puede consultar. |
+| Persistencia | Base propia `CorreosCXC`, esquema `notif` | Consultable desde el ERP y sobrevive al contenedor; la bitácora de hoy es texto plano y no se puede consultar. Va en su propia base y no dentro de `Lito` porque son datos de la aplicación de correos, no del ERP: así el DBA da escritura ahí sin tocar los permisos de `Lito` y `LitoCRM`, donde la aplicación sólo lee. |
 | Detección | IMAP sobre el buzón remitente (`cxc@litoprocess.com`) | Cruce por los headers `In-Reply-To` / `References`: es exacto y no depende de heurísticas sobre el asunto. |
 | Política | Un solo recordatorio | A los N días sin respuesta se reenvía una vez; si tampoco contestan, se cierra como `SIN_RESPUESTA` y se revisa a mano. |
 
 ## Ciclo de vida de un envío
 
-Cada correo que sale queda como un renglón en `notif.Envio` y se mueve por estos estados:
+Cada correo que sale queda como un renglón en `CorreosCXC.notif.Envio` y se mueve por estos estados:
 
 ```
 ENVIADO ──(N días)──┬── CONTESTADO
@@ -51,7 +56,7 @@ Con `Smtp:ModoPrueba` activo todo se redirige al buzón de pruebas, así que el 
 el correo. Si el seguimiento no distingue esos envíos, **cada ensayo genera un pendiente que a los
 N días manda un recordatorio de verdad**.
 
-Por eso `notif.Envio` guarda la columna `ModoPrueba` y la consulta de pendientes la excluye.
+Por eso `CorreosCXC.notif.Envio` guarda la columna `ModoPrueba` y la consulta de pendientes la excluye.
 
 ### 3. Gmail puede reescribir el Message-Id — VERIFICAR
 
@@ -79,13 +84,31 @@ en el correo recibido, y el `In-Reply-To` de la respuesta.
 El header `X-Notificacion-Id` se agrega en ambos casos: no cuesta nada y es lo que permite
 reconciliar si algo se descuadra.
 
-## Fase 1 — Persistencia: el esquema `notif` (~4 h)
+## Fase 1 — Persistencia: la base `CorreosCXC` (~4 h)
 
 Un script idempotente que el DBA pueda leer de corrido y correr dos veces sin daño. Va en el repo y
 se documenta en `DESPLIEGUE.md` como paso previo a la primera corrida.
 
+El seguimiento vive en **su propia base**, no dentro de `Lito`. La cadena de conexión sigue
+apuntando a `Lito` —de ahí salen las facturas— y la aplicación llega al seguimiento por nombre de
+tres partes (`CorreosCXC.notif.Envio`), que es la misma convención que ya usa `FacturaDAO` para
+`LITOCRM` y `etl_mstr`.
+
+El script se cambia solo a su base, así que se corre sin `-d`:
+
+```bash
+sqlcmd -S SERVIDOR -i deploy/sql/001-seguimiento.sql
+```
+
 ```sql
 -- deploy/sql/001-seguimiento.sql
+IF DB_ID('CorreosCXC') IS NULL
+    CREATE DATABASE CorreosCXC;
+GO
+
+USE CorreosCXC;
+GO
+
 IF SCHEMA_ID('notif') IS NULL EXEC('CREATE SCHEMA notif');
 GO
 
@@ -138,7 +161,7 @@ Del lado de C#, un DAO con Dapper al estilo del que ya existe: `Registrar`, `Obt
 
 | | Archivo | Qué |
 |---|---|---|
-| nuevo | `deploy/sql/001-seguimiento.sql` | esquema, idempotente |
+| nuevo | `deploy/sql/001-seguimiento.sql` | base `CorreosCXC` y esquema `notif`, idempotente |
 | nuevo | `Entity/EnvioNotificacion.cs` | el renglón y su enum de estado |
 | nuevo | `DAO/SeguimientoDAO.cs` | Dapper, mismo estilo que `FacturaDAO` |
 | cambia | `DAO/FacturaDAO.cs` | volver al filtro del día |
@@ -161,7 +184,7 @@ correos enviados sin rastro.
 
 **Idempotencia.** Antes de armar el correo se consulta `YaNotificada(cliente, movId)`: si esa
 factura ya salió en un envío que no está `FALLIDO`, no se vuelve a incluir. Es la red de seguridad
-contra una doble corrida del timer o un rango de fechas mal puesto.
+contra una doble corrida del schedule o un rango de fechas mal puesto.
 
 | | Archivo | Qué |
 |---|---|---|
@@ -251,7 +274,7 @@ hoy.
 
 Se seleccionan los envíos en `ENVIADO`, con `ModoPrueba = 0`, `Intento = 1` y más de `DiasEspera`
 días encima. Para cada uno se vuelven a descargar del API los XML y PDF de los `MovID` guardados en
-`notif.EnvioFactura` —el cliente probablemente nunca los abrió, mandarlo sin adjuntos lo obligaría
+`CorreosCXC.notif.EnvioFactura` —el cliente probablemente nunca los abrió, mandarlo sin adjuntos lo obligaría
 a buscar el correo anterior— y se arma un mensaje nuevo **dentro del hilo original**:
 
 ```csharp
@@ -286,23 +309,42 @@ armado de dependencias se mueve a una clase aparte para que no crezca:
 
 | Comando | Qué hace | Agenda |
 |---|---|---|
-| (sin args) | Envía las facturas del día y registra cada envío. Es el comportamiento actual más la Fase 2. | L–V 19:00 |
+| `--clientes` | Envía las facturas del día y registra cada envío. Es el comportamiento actual más la Fase 2. | L–V 18:00 |
+| `--vendedores` | Cartera sin ingresar a revisión, a cada vendedor. No entra al seguimiento. | Mar y vie 09:00 |
 | `--seguimiento` | Concilia respuestas y manda los recordatorios que toquen, en una sola pasada. | L–V 10:00 |
 | `--revisar-respuestas` | Solo la conciliación. Para correr a mano y ver qué detecta sin mandar nada. | manual |
 | `--recordatorios` | Solo los reenvíos. Útil para reintentar si el SMTP falló a media pasada. | manual |
-| `--previsualizar` | Genera el HTML en disco sin enviar. Ya existe comentado en `Program.cs:37`; se descomenta. | manual |
+| `--previsualizar` | Genera el HTML en disco sin enviar. Modificador de los anteriores, no un comando suelto. | manual |
+
+**El schedule es cron, y sólo cron.** Se agenda como una línea más en el crontab del usuario
+`notificaciones`, junto a las dos que ya existen:
+
+```cron
+# Acuses y recordatorios — lunes a viernes 10:00
+0 10 * * 1-5 /home/docker/notificacion-clientes/run.sh seguimiento >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
+```
+
+La hora no es arbitraria: va **después** de que la gente abrió su correo por la mañana y **antes**
+del envío de las 18:00. Correrlo de madrugada contaría como "sin respuesta" a quien contestó la
+noche anterior y todavía no aparecía en el buzón.
 
 **Dos detalles del despliegue que hay que tocar.** `run.sh` pasa los argumentos al contenedor con
 `"$@"`; y el `--name` fijo, que hoy es el anti-solapamiento, tiene que variar por comando
 (`notificacion-clientes-seguimiento`) porque si no, la corrida de las 10:00 se bloquearía contra un
 contenedor de envío que siguiera vivo, y viceversa.
 
+Lo que cron no trae y hay que resolver en `run.sh`: **el tope de duración**. Una corrida colgada en
+el SMTP seguiría viva a la hora de la siguiente y su `--name` la bloquearía en cadena. Se envuelve
+el `docker run` en `timeout` y, al cortar, se borra el contenedor: matar al cliente de docker no
+detiene el contenedor. Cron tampoco recupera disparos perdidos, así que la alerta por ausencia
+—el ping de monitoreo— es lo único que detecta que la corrida nunca ocurrió.
+
 | | Archivo | Qué |
 |---|---|---|
 | cambia | `Program.cs` | despacho por argumento |
 | nuevo | `Comandos/` | una clase por comando |
-| cambia | `deploy/run.sh` | `"$@"` y nombre de contenedor por comando |
-| nuevo | `deploy/notificacion-seguimiento.service` | y su `.timer`, L–V 10:00 |
+| cambia | `deploy/run.sh` | `"$@"`, nombre de contenedor por comando y tope de duración |
+| cambia | *crontab del servidor* | una línea más, L–V 10:00 |
 
 ## Fase 7 — Configuración y documentación (~2 h)
 
@@ -331,7 +373,7 @@ como paso previo y los comandos nuevos.
 | cambia | `appsettings.example.json` | secciones `Imap` y `Seguimiento` |
 | cambia | `.env.example` | equivalentes con `__` |
 | cambia | `README.md` | sección de seguimiento |
-| cambia | `deploy/DESPLIEGUE.md` | script SQL y segundo timer |
+| cambia | `deploy/DESPLIEGUE.md` | script SQL y la línea nueva del crontab |
 
 ---
 
@@ -343,7 +385,8 @@ como paso previo y los comandos nuevos.
 | Falso positivo | Un autorreply cierra el pendiente y el cliente nunca recibe el recordatorio. | Descarte por `Auto-Submitted`, `Precedence` y `X-Autoreply`. Falla del lado seguro: ante la duda, insistir. |
 | Recordatorio indebido | Se le insiste a un cliente que sí contestó, por otro canal o a otro buzón. | Un solo recordatorio por envío, por construcción de la consulta. El daño máximo es un correo de más. |
 | Contraseña IMAP | Una credencial más que rota y que da acceso de lectura a todo el buzón de cobranza. | Misma contraseña de aplicación del SMTP, solo por variable de entorno, y la carpeta se abre en `ReadOnly`. |
-| Permisos en la BD | El usuario de la aplicación hoy solo lee; el esquema `notif` necesita escritura. | Acordarlo con el DBA antes de la Fase 1. Es el único requisito externo del plan. |
+| Permisos en la BD | El usuario de la aplicación hoy solo lee, y necesita escritura en `CorreosCXC`. Al ser otra base, no basta con el permiso que ya tiene en `Lito`: hace falta un usuario ahí. | Acordarlo con el DBA antes de la Fase 1. Es el único requisito externo del plan. El script trae comentado el `CREATE USER` y los dos `ALTER ROLE`. |
+| Transacción entre bases | `Registrar` escribe en `CorreosCXC` desde una conexión abierta contra `Lito`. Si algún día las bases quedaran en instancias distintas, eso pasaría a requerir MSDTC y fallaría al escribir. | Mientras vivan en la misma instancia es una transacción local normal. Queda anotado en el DAO para que no sorprenda en una migración. |
 
 ## Orden de trabajo
 

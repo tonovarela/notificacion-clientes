@@ -17,20 +17,23 @@ namespace notificacion_clientes.Services
         private readonly FacturaDAO _facturaDAO;
         private readonly FacturaDescargaService _descargaService;
         private readonly LectorCfdi _lectorCfdi;
+        private readonly int _diasAtras;
 
         public NotificacionService(
             FacturaDAO facturaDAO,
             FacturaDescargaService descargaService,
-            LectorCfdi lectorCfdi)
+            LectorCfdi lectorCfdi,
+            int diasAtras = 0)
         {
             _facturaDAO = facturaDAO;
             _descargaService = descargaService;
             _lectorCfdi = lectorCfdi;
+            _diasAtras = diasAtras;
         }
 
         public async Task<IReadOnlyList<NotificacionCliente>> Preparar(CancellationToken cancelacion = default)
         {
-            var facturas = await _facturaDAO.Obtener();
+            var facturas = await _facturaDAO.Obtener(_diasAtras);
 
             var porCliente = facturas
                 .Where(f => !string.IsNullOrWhiteSpace(f.MovID) && !string.IsNullOrWhiteSpace(f.Cliente))

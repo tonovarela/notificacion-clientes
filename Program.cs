@@ -1,9 +1,10 @@
 
+using System;
 using System.Globalization;
+using System.Linq;
+using System.Threading.Tasks;
+using notificacion_clientes.Comandos;
 using notificacion_clientes.Configuracion;
-using notificacion_clientes.DAO;
-using notificacion_clientes.Entity;
-using notificacion_clientes.Services;
 
 namespace notificacion_clientes
 {
@@ -22,161 +23,86 @@ namespace notificacion_clientes
             CultureInfo.DefaultThreadCurrentUICulture = Cultura;
 
             var inicio = DateTime.Now;
-            var settings = AppSettings.Cargar();
-            using var httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(settings.TimeoutApiSegundos)
-            };
-            var facturaDAO = new FacturaDAO(settings.CadenaSqlServer);
-            var descargaService = new FacturaDescargaService(httpClient, settings.UrlDescargaFacturas);
-            var notificacionService = new NotificacionService(facturaDAO, descargaService, new LectorCfdi());
-            var revisionVendedorService = new RevisionVendedorService(facturaDAO);
-            var plantillaService = new PlantillaService(settings.RutaPlantilla);
-            var plantillaVendedorService = new PlantillaVendedorService(settings.RutaPlantillaVendedor);
-            var correoService = new CorreoService(settings.Smtp, plantillaService, plantillaVendedorService, settings.RutaLogo);
-            var bitacora = new BitacoraService(settings.RutaBitacora, settings.Smtp);
-            var reporte = new ReporteConsola();
             var previsualizar = args.Contains("--previsualizar");
 
+            using var dep = new Dependencias(AppSettings.Cargar());
 
+            // Procesos distintos comparten el mismo ejecutable porque comparten configuración,
+            // SMTP y bitácora. Se eligen por argumento para poder programarlos en horarios
+            // distintos, y el argumento es obligatorio: sin él no sale ningún correo y el
+            // programa terminaría en 0, que se ve igual que una corrida exitosa.
+            var ejecutado = false;
 
-            // Dos procesos distintos comparten el mismo ejecutable porque comparten configuración,
-            // SMTP y bitácora. Se eligen por argumento para poder programarlos en horarios distintos.
-
-            //Lunes a viernes  6 de la tarde   
+            // Lunes a viernes, 18:00  //Facturas a revision
             if (args.Contains("--clientes"))
             {
-                await EjecutarClientes(
-                notificacionService, plantillaService, correoService,
-                bitacora, reporte, settings, inicio, previsualizar);
+                await new ComandoClientes(dep).Ejecutar(inicio, previsualizar);
+                ejecutado = true;
             }
 
-            
-            // Martes y Viernes a las 9 de la mañana
+            //  Viernes 09:00. Facturas no ingresadas a revisión, a cada vendedor
             if (args.Contains("--vendedores"))
             {
-                await EjecutarVendedores(
-                    revisionVendedorService, plantillaVendedorService, correoService,
-                    bitacora, reporte, settings, inicio, previsualizar);
+                await new ComandoVendedores(dep).Ejecutar(inicio, previsualizar);
+                ejecutado = true;
+            }
+
+            // Martes y viernes, 09:00. El viernes excluye a quien contestó el correo del martes.
+            if (args.Contains("--cobranza"))
+            {
+                // Las banderas fuerzan la regla en una corrida manual; sin ellas manda el día.
+                bool? exclusion = args.Contains("--con-exclusion") ? true
+                                : args.Contains("--sin-exclusion") ? false
+                                : null;
+
+                await new ComandoCobranza(dep).Ejecutar(inicio, previsualizar, exclusion);
+                ejecutado = true;
+            }
+
+            // Lunes a viernes, 10:00. Detecta quién contestó y cierra lo que agotó su vigencia.
+            // Es lo que alimenta la regla del viernes de cobranza; no manda ningún correo.
+            if (args.Contains("--seguimiento"))
+            {
+                await new ComandoSeguimiento(dep).Ejecutar(inicio, cerrarVencidos: true);
+                ejecutado = true;
+            }
+
+            // Sólo la conciliación, sin cerrar nada. Para correr a mano y ver qué detecta.
+            if (args.Contains("--revisar-respuestas"))
+            {
+                await new ComandoSeguimiento(dep).Ejecutar(inicio, cerrarVencidos: false);
+                ejecutado = true;
+            }
+
+            if (!ejecutado)
+            {
+                ImprimirUso();
+                Environment.ExitCode = 64;   // EX_USAGE
                 return;
             }
 
             Console.WriteLine("Termino de ejecutar el programa.");
-
-
-
-
-
-
         }
 
-        private static async Task EjecutarClientes(
-            NotificacionService notificacionService,
-            PlantillaService plantillaService,
-            CorreoService correoService,
-            BitacoraService bitacora,
-            ReporteConsola reporte,
-            AppSettings settings,
-            DateTime inicio,
-            bool previsualizar)
+        /// <summary>
+        /// Sin argumento válido no se hace nada y se sale con 64. Terminar en 0 sin mandar un
+        /// solo correo pasaría por corrida exitosa, que es la falla más difícil de notar.
+        /// </summary>
+        private static void ImprimirUso()
         {
-            // Si algo truena a medio camino igual se deja la evidencia en disco con el motivo:
-            // una bitácora que falta no sirve para aclarar nada después.
-            IReadOnlyList<NotificacionCliente> notificaciones = Array.Empty<NotificacionCliente>();
-            IReadOnlyList<ResultadoEnvio> resultados = Array.Empty<ResultadoEnvio>();
-            string? errorFatal = null;
-
-            try
-            {
-                Console.WriteLine("Obteniendo facturas...");
-                notificaciones = await notificacionService.Preparar();
-                reporte.Imprimir(notificaciones);
-
-                // Con --previsualizar se genera el HTML en disco y no se envía nada: sirve para revisar la plantilla.
-                if (previsualizar)
-                {
-                    foreach (var notificacion in notificaciones)
-                        await GuardarPrevisualizacion(
-                            $"previsualizacion-cliente-{notificacion.Cliente}.html",
-                            plantillaService.Renderizar(notificacion));
-
-                    return;
-                }
-
-                Console.WriteLine();
-                Console.WriteLine("Enviando correos...");
-                resultados = await correoService.Enviar(notificaciones);
-                reporte.ImprimirEnvios(resultados, settings.Smtp.ModoPrueba);
-            }
-            catch (Exception ex)
-            {
-                errorFatal = ex.Message;
-                Console.WriteLine($"ERROR: la ejecución no se completó: {ex.Message}");
-                Environment.ExitCode = 1;
-            }
-
-            var rutaBitacora = await bitacora.Escribir(notificaciones, resultados, inicio, errorFatal);
+            Console.WriteLine("Uso: notificacion-clientes <comando> [--previsualizar]");
             Console.WriteLine();
-            Console.WriteLine($"Bitácora: {rutaBitacora}");
-        }
-
-        /// <summary>Avisa a cada vendedor de las facturas que sus clientes no han ingresado a revisión.</summary>
-        private static async Task EjecutarVendedores(
-            RevisionVendedorService revisionVendedorService,
-            PlantillaVendedorService plantillaVendedorService,
-            CorreoService correoService,
-            BitacoraService bitacora,
-            ReporteConsola reporte,
-            AppSettings settings,
-            DateTime inicio,
-            bool previsualizar)
-        {
-            IReadOnlyList<NotificacionVendedor> notificaciones = Array.Empty<NotificacionVendedor>();
-            IReadOnlyList<ResultadoEnvio> resultados = Array.Empty<ResultadoEnvio>();
-            string? errorFatal = null;
-
-            try
-            {
-                Console.WriteLine("Obteniendo facturas sin ingresar a revisión...");
-                notificaciones = await revisionVendedorService.Preparar();
-                reporte.ImprimirVendedores(notificaciones);
-
-                if (previsualizar)
-                {
-                    foreach (var notificacion in notificaciones)
-                        await GuardarPrevisualizacion(
-                            $"previsualizacion-vendedor-{Sanear(notificacion.Email)}.html",
-                            plantillaVendedorService.Renderizar(notificacion));
-
-                    return;
-                }
-
-                Console.WriteLine();
-                Console.WriteLine("Enviando correos a vendedores...");
-                resultados = await correoService.EnviarVendedores(notificaciones);
-                reporte.ImprimirEnvios(resultados, settings.Smtp.ModoPruebaVendedores);
-            }
-            catch (Exception ex)
-            {
-                errorFatal = ex.Message;
-                Console.WriteLine($"ERROR: la ejecución no se completó: {ex.Message}");
-                Environment.ExitCode = 1;
-            }
-
-            var rutaBitacora = await bitacora.EscribirVendedores(notificaciones, resultados, inicio, errorFatal);
+            Console.WriteLine("  --clientes             Facturas del día a cada cliente");
+            Console.WriteLine("  --vendedores           Cartera sin ingresar a revisión, a cada vendedor");
+            Console.WriteLine("  --cobranza             Estado de cuenta vencido a cada cliente");
+            Console.WriteLine("  --seguimiento          Detecta acuses y cierra lo que agotó su vigencia");
+            Console.WriteLine("  --revisar-respuestas   Sólo la detección, sin cerrar nada");
             Console.WriteLine();
-            Console.WriteLine($"Bitácora: {rutaBitacora}");
+            Console.WriteLine("  --previsualizar        Genera el HTML en disco sin enviar correos");
+            Console.WriteLine();
+            Console.WriteLine("  Sólo para --cobranza, la regla del viernes se puede forzar:");
+            Console.WriteLine("  --con-exclusion        Omite a quien ya contestó esta semana");
+            Console.WriteLine("  --sin-exclusion        Notifica a todos, hayan contestado o no");
         }
-
-        private static async Task GuardarPrevisualizacion(string nombreArchivo, string html)
-        {
-            var ruta = Path.Combine(AppContext.BaseDirectory, nombreArchivo);
-            await File.WriteAllTextAsync(ruta, html);
-            Console.WriteLine($"Previsualización: {ruta}");
-        }
-
-        /// <summary>El correo del vendedor se usa como nombre de archivo; la arroba y el punto estorban.</summary>
-        private static string Sanear(string valor) =>
-            string.Concat(valor.Select(c => char.IsLetterOrDigit(c) ? c : '-'));
     }
 }

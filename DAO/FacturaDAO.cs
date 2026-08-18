@@ -1,3 +1,4 @@
+using System.Resources;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using notificacion_clientes.Entity;
@@ -34,8 +35,19 @@ namespace notificacion_clientes.DAO
             _sqlConexion = sqlConexion;
         }
 
-        public async Task<IEnumerable<Factura>> Obtener()
+        /// <summary>
+        /// Facturas a notificar. <paramref name="diasAtras"/> es cuántos días hacia atrás se
+        /// incluyen: 0 = sólo las de hoy, que es lo normal.
+        ///
+        /// El rango importa más de lo que parece. Con seguimiento encima, cada corrida abre un
+        /// envío por cada factura que trae; un rango de tres semanas volvería a abrir envíos por
+        /// facturas ya notificadas todos los días, y a los N días dispararía un recordatorio por
+        /// cada uno. El tope superior deja fuera las facturas con fecha futura, que existen por
+        /// captura y no deben notificarse antes de tiempo.
+        /// </summary>
+        public async Task<IEnumerable<Factura>> Obtener(int diasAtras = 0)
         {
+            Console.WriteLine($"Obteniendo facturas de los últimos {diasAtras} días...");
             string sql= @"SELECT
                                             v.Cliente,
                                             c.RazonSocial,
@@ -58,11 +70,11 @@ namespace notificacion_clientes.DAO
                                                 AND ctos.cfd_enviar   = 1
                                                 AND ctos.activo       = 1
                                         WHERE v.Mov       = 'Factura Electronica'
-                                          AND v.Estatus   = 'concluido'  
-                                          --AND v.FechaEmision = CONVERT(DATE, GETDATE())
-                                          AND v.FechaEmision >= DATEADD(DAY, -21, CAST(GETDATE() AS DATE));";
+                                          AND v.Estatus   = 'concluido'
+                                          AND v.FechaEmision >= DATEADD(DAY, -@DiasAtras, CAST(GETDATE() AS DATE))
+                                          AND v.FechaEmision <  DATEADD(DAY, 1, CAST(GETDATE() AS DATE));";
             using var conexion = new SqlConnection(_sqlConexion);
-            return await conexion.QueryAsync<Factura>(sql);
+            return await conexion.QueryAsync<Factura>(sql, new { DiasAtras = diasAtras });
         }
 
 
@@ -91,6 +103,54 @@ namespace notificacion_clientes.DAO
                             ORDER BY Vendedor, v.NombreCte, v.Vencimiento;";
             using var conexion = new SqlConnection(_sqlConexion);
             return await conexion.QueryAsync<FacturaRevisionVendedor>(sql);
+        }
+    
+
+
+        /// <summary>
+        /// Cobranza vencida por cliente: lo que ya se pasó de la fecha de pago.
+        ///
+        /// El contacto es el de cuentas por pagar (contactoCXP), que no es el mismo que recibe los
+        /// CFDI del día.
+        ///
+        /// El filtro 'x.email is not null' deja fuera a los clientes sin contacto capturado en el
+        /// CRM: no hay a quién escribirles, así que no llegan al proceso. Es una decisión
+        /// deliberada y tiene un costo — esas cuentas vencidas quedan invisibles para este
+        /// reporte y hay que vigilarlas por otro medio.
+        ///
+        /// Devuelve una fila por factura y por contacto; agrupar es trabajo del servicio.
+        /// </summary>
+        public async Task<IEnumerable<FacturaCobranzaVencida>> ObtenerFacturasCobranzaVencida()
+        {
+            string sql = @"SELECT
+                                v.Cliente,
+                                v.Nombre                            AS RazonSocial,
+                                Factura = v.Mov + ' ' + v.MovID,
+                                v.FechaEmision,
+                                v.Condicion,
+                                v.Vencimiento,
+                                v.Moneda,
+                                v.TotalVencido,
+                                x.NombreAgente,
+                                x.Tratamiento,
+                                UPPER(x.Nombre)                     AS Nombre,
+                                x.Cargo,
+                                x.Email
+                            FROM etl_mstr.dbo.v_AntiguedadCxC v
+                                LEFT JOIN (SELECT c.RazonSocial, c.NombreAgente, ctos.Tratamiento, ctos.Nombre,
+                                                  ctos.Cargo, ctos.Email, ctos.Telefonos, c.ClienteINT
+                                           FROM litocrm.dbo.v_catClientes c
+                                               LEFT JOIN (SELECT Tratamiento, Nombre, Cargo, Departamento, Telefonos, Email, idClienteINT
+                                                          FROM LitoCRM.dbo.v_catContactos
+                                                          WHERE contactoCXP = 1 AND activo = 1) ctos
+                                                   ON ctos.idClienteINT = c.ClienteINT) x
+                                    ON x.ClienteINT = v.Cliente
+                            WHERE v.Mov       = 'Factura Electronica'
+                              AND v.Categoria = 'VENCIDAS'
+                              and x.email is not null
+                            ORDER BY v.Cliente, v.Vencimiento;";
+            using var conexion = new SqlConnection(_sqlConexion);
+            return await conexion.QueryAsync<FacturaCobranzaVencida>(sql);
         }
     }
 }

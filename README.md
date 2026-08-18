@@ -1,15 +1,21 @@
 # Notificación de facturas
 
-Aplicación de consola en .NET 8 que manda dos avisos distintos por correo, ambos sobre facturas y
-ambos con la misma configuración, servidor SMTP y bitácora.
+Aplicación de consola en .NET 8 que manda avisos por correo sobre facturas, todos con la misma
+configuración, servidor SMTP y bitácora.
 
 | Proceso | Argumento | A quién le llega | Qué lleva |
 |---|---|---|---|
-| **Facturas del día** | *(ninguno)* | A los contactos del cliente marcados en el CRM | Un correo por cliente con el XML y el PDF de sus CFDI adjuntos |
+| **Facturas del día** | `--clientes` | A los contactos del cliente marcados en el CRM | Un correo por cliente con el XML y el PDF de sus CFDI adjuntos |
 | **Cartera por vendedor** | `--vendedores` | Al vendedor dueño de la cuenta | Un correo por vendedor con las facturas vencidas que sus clientes todavía no ingresan a revisión |
+| **Cobranza vencida** | `--cobranza` | Al contacto de cuentas por pagar del cliente | Un correo por cliente con su estado de cuenta vencido, sin adjuntos |
+| **Seguimiento** | `--seguimiento` | A los clientes que no acusaron recibo | Un recordatorio dentro del hilo del correo original, con los mismos CFDI |
 
 Son procesos independientes: se ejecutan por separado, cada uno escribe su propia bitácora y usan
 plantillas distintas. Comparten el ejecutable porque comparten configuración y conexión SMTP.
+
+El argumento es **obligatorio**. Sin él la aplicación imprime el uso y sale con código 64: terminar
+en 0 sin haber mandado un solo correo pasaría por corrida exitosa, que es la falla más difícil de
+notar.
 
 ### Facturas del día
 
@@ -29,6 +35,72 @@ plantillas distintas. Comparten el ejecutable porque comparten configuración y 
 
 Las facturas cuyo agente no existe en el CRM no se pierden: caen en el buzón de cobranza y el correo
 trae un aviso visible para que se corrija el catálogo.
+
+### Cobranza vencida
+
+1. Consulta la vista de antigüedad de saldos por las facturas en categoría `VENCIDAS` y les cruza
+   el contacto de **cuentas por pagar** del CRM (`contactoCXP`), que no es el mismo que recibe los
+   CFDI del día.
+2. Agrupa por cliente y arma un estado de cuenta con el detalle factura por factura: vencimiento,
+   días transcurridos y saldo. No se adjunta ningún CFDI.
+3. Sale **martes y viernes a las 09:00**. El viernes se excluye a quien ya contestó el correo del
+   martes, y a quien no contestó le llega **dentro del mismo hilo** como recordatorio: se registra
+   con `Intento = 2` ligado al del martes, así que el cliente ve una sola conversación por semana
+   y nunca más de dos correos.
+
+Tres detalles que importan:
+
+- **La exclusión del viernes depende del seguimiento.** Se apoya en `notif.Envio` para saber quién
+  contestó, así que necesita `Seguimiento:Habilitado` y que la conciliación haya corrido entre
+  martes y viernes. Si el seguimiento está apagado, el proceso lo avisa en pantalla y en la
+  bitácora, y notifica a todos: prefiere insistir de más a callarse sin decirlo.
+- **Los saldos nunca se suman entre monedas.** La vista devuelve "Pesos" y "Dolares", y el correo
+  presenta un total por cada una. Hoy ningún cliente tiene las dos, pero el día que ocurra un
+  total único diría una cifra falsa sin que nadie lo note.
+- **Los clientes sin contacto CXP no entran al reporte.** La consulta los filtra con
+  `x.email is not null`: no hay a quién escribirles. Tiene un costo que conviene tener presente —
+  esas cuentas vencidas quedan invisibles aquí y hay que vigilarlas por otro medio.
+
+### Seguimiento: quién contestó
+
+Detecta qué clientes contestaron los correos que salieron y lo deja registrado en SQL Server. **No
+manda ningún correo**: es la mitad que informa, no la que insiste.
+
+```
+ENVIADO ──┬── CONTESTADO        el cliente respondió
+          ├── RECORDADO         se le insistió el viernes (sólo cobranza)
+          ├── SIN_RESPUESTA     agotó su vigencia
+          └── FALLIDO           rebotó o no salió del SMTP
+```
+
+1. Cada correo que sale queda como un renglón en `CorreosCXC.notif.Envio`, con el `Message-Id` con
+   el que se envió y el proceso que lo generó (`CLIENTES` o `COBRANZA`).
+2. La corrida de seguimiento abre el buzón remitente por IMAP **en sólo lectura** y cruza las
+   respuestas contra esos `Message-Id`, por `In-Reply-To` o por la cadena `References`. Si el
+   programa de correo del cliente no conserva esos headers, cae a un cruce por remitente + asunto.
+3. Cierra los envíos de cobranza que pasaron `DiasVigencia` sin respuesta.
+
+De ahí sale la única política automática que existe: **la regla del viernes de cobranza**. Quien
+contestó el martes no recibe el correo del viernes; quien no, lo recibe dentro del mismo hilo. Las
+facturas del día no tienen recordatorio.
+
+Cuatro cosas que conviene entender antes de encenderlo:
+
+- **Necesita una base aparte y permiso de escritura.** El seguimiento vive en `CorreosCXC`, no en
+  `Lito`: son datos de esta aplicación, no del ERP. Se crea con `deploy/sql/001-seguimiento.sql` y
+  el usuario de la aplicación necesita lectura y escritura ahí; la conexión sigue apuntando a
+  `Lito` y se llega por nombre de tres partes. Es el único requisito externo. Sin eso, la corrida
+  truena al registrar el primer envío, después de haber mandado los correos.
+- **Cerrar los envíos no es cosmético.** La conciliación busca en el buzón desde el pendiente más
+  viejo, así que un envío que nunca se cierra ancla esa ventana para siempre y la búsqueda IMAP
+  crece sin límite. `DiasVigencia` los cierra; `DiasVentanaMaxima` es el tope duro que protege
+  aunque lo anterior falle.
+- **Los envíos en modo prueba no cuentan para la regla del viernes.** Se guardan con
+  `ModoPrueba = 1` y la consulta los excluye: el cliente real nunca vio ese correo, así que una
+  "respuesta" desde el buzón de pruebas no debe excluir a nadie de un correo de verdad.
+- **Un "estoy fuera de la oficina" no cuenta como respuesta.** Se descartan por `Auto-Submitted`,
+  `Precedence` y `X-Autoreply`. Ante la duda se insiste: un correo de más es más barato que un
+  cliente que se queda sin su aviso.
 
 ## Requisitos
 
@@ -144,20 +216,36 @@ El modo de cifrado se deduce del puerto, así que basta cambiar el número:
 ## Ejecución
 
 ```bash
-dotnet run                  # facturas del día a los clientes
-dotnet run -- --vendedores  # cartera pendiente de revisión a los vendedores
+dotnet run -- --clientes            # facturas del día a los clientes
+dotnet run -- --vendedores          # cartera pendiente de revisión a los vendedores
+dotnet run -- --cobranza            # estado de cuenta vencido a los clientes
+dotnet run -- --seguimiento         # detecta acuses y cierra lo que agotó su vigencia
 ```
 
-Con `--previsualizar` se genera el HTML de cada correo en el directorio de salida y **no se envía
-nada**. Sirve para iterar el diseño de la plantilla, y funciona con los dos procesos:
+En `--cobranza`, la regla del viernes se decide por el día de la corrida. Para una corrida manual
+se puede forzar en cualquier sentido con `--con-exclusion` o `--sin-exclusion`, de modo que el
+resultado no dependa del calendario.
+
+El seguimiento se puede correr por mitades, que es como se prueba sin arriesgar un correo:
 
 ```bash
-dotnet run -- --previsualizar
-dotnet run -- --vendedores --previsualizar
+dotnet run -- --revisar-respuestas  # sólo detecta; no cierra nada ni manda correos
 ```
 
-Los archivos quedan como `previsualizacion-cliente-<cliente>.html` y
-`previsualizacion-vendedor-<correo>.html` junto al ejecutable. Ojo: la previsualización sí consulta
+Ninguno de los dos manda correo: el recordatorio de cobranza es el correo del viernes.
+
+Con `--previsualizar` se genera el HTML de cada correo en el directorio de salida y **no se envía
+nada**. Sirve para iterar el diseño de la plantilla, y funciona con todos los procesos:
+
+```bash
+dotnet run -- --clientes --previsualizar
+dotnet run -- --vendedores --previsualizar
+dotnet run -- --cobranza --previsualizar
+```
+
+Los archivos quedan como `previsualizacion-cliente-<cliente>.html`,
+`previsualizacion-vendedor-<correo>.html` y `previsualizacion-cobranza-<cliente>.html` junto al
+ejecutable. Ojo: la previsualización sí consulta
 la base de datos —lo único que se salta es el envío—, así que el contenido es el real de la corrida.
 
 ## Bitácora
@@ -205,18 +293,21 @@ siempre en `es-MX` para que la evidencia no dependa de la configuración regiona
 ## Estructura
 
 ```
+Comandos/        Una clase por comando, más el armado de dependencias
 Configuracion/   Lectura y validación de appsettings.json
 DAO/             Acceso a SQL Server (Dapper)
 Entity/          Modelos: Factura y NotificacionCliente (clientes),
-                 FacturaRevisionVendedor y NotificacionVendedor (vendedores)
+                 FacturaRevisionVendedor y NotificacionVendedor (vendedores),
+                 EnvioNotificacion y Recordatorio (seguimiento)
 Services/        Descarga de archivos, orquestación, plantillas, envío de correo, reporte y bitácora
 Plantillas/      Plantillas HTML de los correos (Scriban)
 Recursos/        Logo que se incrusta en los correos
 Logs/            Bitácora de cada ejecución (no se versiona)
+deploy/sql/      Scripts de la base CorreosCXC (esquema notif), idempotentes
 ```
 
-`Program.cs` funciona solo como composition root: carga la configuración, arma las dependencias y
-ejecuta el proceso que le pidieron por argumento.
+`Program.cs` sólo despacha: decide qué comando corre según el argumento. El armado de dependencias
+vive en `Comandos/Dependencias.cs`, y cada comando en su propia clase.
 
 Lo que comparten los dos flujos está en un solo lugar: `CorreoService` abre una sola conexión SMTP y
 manda el lote sin importar de qué tipo sea, y `PlantillaCompilada` lee y compila cada plantilla una
@@ -254,6 +345,30 @@ plurales llegan ya formateados en `es-MX`: la plantilla solo acomoda texto listo
 
 Los clientes vienen ordenados del más atrasado al menos, y las facturas de cada uno por fecha de
 vencimiento. Las de más de 60 días se marcan en rojo.
+
+### `Plantillas/cobranza-vencida.html` y `Plantillas/cobranza-recordatorio.html`
+
+Comparten el mismo modelo y se eligen por `EsRecordatorio`: la primera es el correo del martes,
+la segunda el del viernes a quien no contestó.
+
+| Variable | Contenido |
+|---|---|
+| `cliente`, `razon_social` | Los del cliente |
+| `saludo` | Nombre del contacto CXP con su tratamiento, o genérico si hay más de uno |
+| `agente` | Asesor de la cuenta; el cierre lo menciona si existe |
+| `fecha_corte` | Fecha de la corrida, en texto |
+| `total_facturas`, `dias_vencido_maximo` | Tamaño y antigüedad del adeudo |
+| `saldos` | Lista con `moneda` y `total`, **una entrada por moneda** |
+| `facturas` | Lista con `factura`, `condicion`, `fecha_emision`, `vencimiento`, `dias_vencido` y `total_vencido` |
+| `dias_desde_envio_original`, `fecha_envio_original` | Sólo útiles en el recordatorio: cuándo salió el correo del martes |
+
+Son dos archivos y no uno con condicionales porque el del viernes no es el del martes con una
+frase distinta: cambia el encabezado —una franja ámbar que dice, antes de leer nada, que ya hubo
+un envío sin respuesta—, el orden de lo que se dice y el cierre. Separarlas permite ajustar el
+tono de la insistencia sin arriesgar el primer aviso.
+
+Las filas con más de 60 días vencidos se marcan en rojo. Los importes en dólares llevan el sufijo
+`USD` para que no se confundan con pesos, que en un correo de cobranza es un error caro.
 
 El HTML usa tablas y estilos inline porque es lo que Outlook y Gmail respetan. El logo se manda
 incrustado (`cid:logo`) en vez de como URL, ya que los clientes de correo bloquean las imágenes

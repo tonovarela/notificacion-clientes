@@ -18,23 +18,36 @@ Archivos de esta carpeta:
 | Archivo | Destino en el servidor | Qué hace |
 |---|---|---|
 | `run.sh` | `/home/docker/notificacion-clientes/run.sh` | Levanta el contenedor, detecta solapamiento, corta la corrida colgada y alerta si falla. Recibe el proceso como argumento. |
+| `sql/001-seguimiento.sql` | se corre en SQL Server | Crea la base `CorreosCXC` y el esquema `notif` del seguimiento. Idempotente. Sólo hace falta si se enciende `Seguimiento__Habilitado`. |
 
-El schedule no es un archivo del repositorio: son dos líneas en el crontab del usuario
+El schedule no es un archivo del repositorio: son cuatro líneas en el crontab del usuario
 `notificaciones`, que se transcriben en el punto 4.
 
-### Los dos procesos
+### Los cuatro procesos
 
-El mismo ejecutable atiende dos corridas distintas y **el argumento es obligatorio**: sin él no
-manda ningún correo y termina con código `0`, que se ve exactamente igual que una corrida exitosa.
+El mismo ejecutable atiende cuatro corridas distintas y **el argumento es obligatorio**: sin él no
+manda ningún correo y termina con código `64`, imprimiendo el uso.
 
 | Proceso | Argumento | Cuándo | Qué manda | Bitácora |
 |---|---|---|---|---|
 | Clientes | `--clientes` | Lun a vie 18:00 | Las facturas del día a cada cliente, con XML y PDF | `envios-*.log` |
 | Vendedores | `--vendedores` | Mar y vie 09:00 | La cartera sin ingresar a revisión a cada vendedor | `revision-vendedores-*.log` |
+| Cobranza | `--cobranza` | Mar y vie 09:00 | El estado de cuenta vencido a cada cliente | `cobranza-*.log` |
+| Seguimiento | `--seguimiento` | Lun a vie 10:00 | Nada: detecta acuses y cierra lo vencido | `seguimiento-*.log` |
 
-`run.sh` recibe el proceso sin los guiones (`run.sh clientes`), valida que sea uno de los dos y
-sale con código 64 si no lo es. Cada proceso corre con su propio `--name`, así que si algún día
-sus horarios se empalman no se bloquean entre sí.
+La regla del viernes de cobranza depende del seguimiento: se excluye a quien contestó el correo
+del martes, y eso sólo se sabe si la conciliación corrió entre medias. Con
+`Seguimiento__Habilitado=false` el proceso avisa en el log y notifica a todos.
+
+El seguimiento **no manda ningún correo**: sólo lee el buzón, marca quién contestó y cierra los
+envíos de cobranza que agotaron su vigencia. El recordatorio de cobranza es el correo del viernes,
+que sale por `--cobranza` dentro del hilo del martes. `--revisar-respuestas` hace lo mismo sin
+cerrar nada, para ver qué detectaría el cruce antes de tocar la base.
+
+`run.sh` recibe el proceso sin los guiones (`run.sh clientes`), valida que sea uno de los cinco
+válidos —los cuatro de arriba más `revisar-respuestas`— y sale con código 64 si no lo es. Cada
+proceso corre con su propio `--name`, por eso cobranza y vendedores pueden compartir las 09:00 del
+martes y viernes sin bloquearse.
 
 ---
 
@@ -178,6 +191,48 @@ Valores que **obligatoriamente** cambian respecto al ejemplo:
 | `ConnectionStrings__SqlServer` | cadena real | El usuario necesita permisos en `Lito` y `LitoCRM`. |
 | `Bitacora__Ruta` | `/app/Logs` | Ruta absoluta: `Path.Combine` la respeta tal cual y cae en el volumen montado. |
 | `TZ` | `America/Mexico_City` | Afecta las fechas impresas en el correo. |
+| `Facturas__DiasAtras` | `0` | Días hacia atrás de la consulta de facturas. `0` = sólo las de hoy. Ampliarlo hace que una misma factura abra un envío nuevo cada día. |
+| `Seguimiento__Habilitado` | `true` para cobranza | Sin esto no hay registro de quién contestó, y **la regla del viernes no puede aplicarse**: el correo sale a todos. Exige el script SQL y el permiso de escritura. |
+| `Seguimiento__DiasVigencia` | `7` | Días que un envío de cobranza espera respuesta antes de cerrarse. Cubre el ciclo semanal. |
+| `Seguimiento__DiasVentanaMaxima` | `30` | Tope duro de cuántos días atrás se lee el buzón. Protege aunque algo quede sin cerrar. |
+| `Imap__Usuario` / `Imap__Password` | vacíos | Vacíos = se usan los de `Smtp`. Es la misma cuenta; duplicar la credencial es cómo se desincronizan. |
+
+### Base de datos: el esquema del seguimiento
+
+Hace falta para `--cobranza` y `--seguimiento`. Sin esto, `Seguimiento__Habilitado` tiene que
+quedar en `false`: la aplicación manda los correos igual que siempre, no registra nada, y **la
+regla del viernes no se aplica** — el correo de cobranza sale a todos, hayan contestado o no.
+
+El seguimiento **no vive en `Lito`**: se crea una base aparte, `CorreosCXC`, con el esquema
+`notif` dentro. Son datos de esta aplicación, no del ERP, y separarlos permite darle escritura al
+usuario ahí sin tocar los permisos que tiene sobre `Lito` y `LitoCRM`, donde sólo lee.
+
+El script se cambia solo a su base, así que se corre **sin** `-d`:
+
+```bash
+sqlcmd -S SERVIDOR -i deploy/sql/001-seguimiento.sql
+```
+
+Es idempotente: cada objeto va detrás de su propia guarda, así que correrlo dos veces no daña lo
+que ya exista.
+
+**Vuélvelo a correr en cada actualización de la imagen**, no sólo la primera vez. El script no
+sólo crea: también agrega columnas que versiones nuevas necesitan y recrea los índices cuya
+definición cambió. Saltarse este paso produce el error más confuso posible — la aplicación
+conecta bien, encuentra la tabla, y truena con *"El nombre de columna 'X' no es válido"*
+**después** de haber mandado los correos.
+
+Los índices se tiran y se recrean a propósito. Un `IF NOT EXISTS` dejaría el índice viejo intacto
+al cambiar su definición, y el script parecería haber corrido bien sin haber hecho nada.
+
+**El requisito que hay que acordar con el DBA** es el único externo de todo el módulo: la cadena
+de conexión sigue apuntando a `Lito` —de ahí salen las facturas— y la aplicación llega al
+seguimiento por nombre de tres partes (`CorreosCXC.notif.Envio`). Para que eso funcione, su login
+necesita un usuario en `CorreosCXC` con lectura y escritura. Al final del script hay un bloque
+comentado con las tres líneas que lo hacen; ajusta el nombre del login antes de descomentarlo.
+
+Si falta el permiso, la corrida truena al registrar el primer envío —después de haber mandado los
+correos.
 
 ### Primeras corridas en modo prueba
 
@@ -219,9 +274,28 @@ CRON_TZ=America/Mexico_City
 # Facturas del día a cada cliente — lunes a viernes 18:00
 0 18 * * 1-5 /home/docker/notificacion-clientes/run.sh clientes   >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
 
+# Estado de cuenta vencido a cada cliente — martes y viernes 09:00
+# El viernes excluye solo a quien contestó el correo del martes; eso requiere el seguimiento
+# encendido y la conciliación de las 10:00 corriendo el miércoles y el jueves.
+0  9 * * 2,5 /home/docker/notificacion-clientes/run.sh cobranza   >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
+
 # Cartera sin ingresar a revisión a cada vendedor — martes y viernes 09:00
 0  9 * * 2,5 /home/docker/notificacion-clientes/run.sh vendedores >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
+
+# Acuses y cierre de vencidos — lunes a viernes 10:00. Sólo si el seguimiento está encendido.
+# Alimenta la regla del viernes de cobranza; no manda ningún correo.
+0 10 * * 1-5 /home/docker/notificacion-clientes/run.sh seguimiento >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
 ```
+
+Cobranza y vendedores comparten la hora a propósito: son dos correos distintos, a destinatarios
+distintos, y cada uno corre en su propio contenedor —`notificacion-clientes-cobranza` y
+`notificacion-clientes-vendedores`—, así que el candado anti-solapamiento no los enfrenta. Lo
+único que comparten es la cuenta SMTP, y dos conexiones simultáneas no son problema para ella.
+Si algún día se quisieran separar, mover una a `15 9 * * 2,5` basta.
+
+La hora del seguimiento no es arbitraria: va **después** de que la gente abrió su correo por la
+mañana y **antes** del envío de las 18:00. Correrlo de madrugada contaría como "sin respuesta" a
+quien contestó la noche anterior y todavía no aparecía en el buzón.
 
 Cuatro cosas de esas líneas que no son decorativas:
 
@@ -249,6 +323,13 @@ grep 'run.sh' /var/log/syslog | tail -20   # confirmar que cron sí disparó (jo
 
 # Corrida manual ahora, con el mismo usuario que la corre en automático
 sudo -u notificaciones /home/docker/notificacion-clientes/run.sh clientes
+
+# Ver qué respuestas detectaría el cruce, sin cerrar nada ni mandar correo
+sudo -u notificaciones /home/docker/notificacion-clientes/run.sh revisar-respuestas
+
+# Ver el correo de cobranza sin enviarlo. --con-exclusion / --sin-exclusion fuerzan
+# la regla del viernes, que si no se decide por el día en que se corre.
+sudo -u notificaciones /home/docker/notificacion-clientes/run.sh cobranza --previsualizar --sin-exclusion
 ```
 
 Esa última línea es la prueba que vale: correr el script como `root` o como tú puede funcionar
@@ -312,10 +393,15 @@ Variables que puedes ajustar sin editar el archivo (o editando la sección de co
 ## 6. Actualizar a una versión nueva
 
 ```bash
-# 1. Traer la imagen
+# 1. Correr el script SQL. Es idempotente y agrega lo que la versión nueva necesite.
+#    Va ANTES de cambiar la imagen: una imagen nueva contra un esquema viejo truena
+#    después de haber mandado los correos.
+sqlcmd -S SERVIDOR -i deploy/sql/001-seguimiento.sql
+
+# 2. Traer la imagen
 docker pull tonovarela/notificacion-clientes:1.1.0
 
-# 2. Probar en seco, sin tocar a los clientes. El argumento del final no es opcional:
+# 3. Probar en seco, sin tocar a los clientes. El argumento del final no es opcional:
 #    sin él la imagen no manda un solo correo y termina en 0, que parece una corrida exitosa.
 docker run --rm \
   --env-file /home/docker/notificacion-clientes/.env \
@@ -324,13 +410,15 @@ docker run --rm \
   -v /home/docker/notificacion-clientes/logs:/app/Logs \
   tonovarela/notificacion-clientes:1.1.0 --clientes
 
-# 3. Si todo salió bien, actualizar la variable IMAGEN en run.sh
+# 4. Si todo salió bien, actualizar la variable IMAGEN en run.sh
 sudo -u notificaciones nano /home/docker/notificacion-clientes/run.sh
 ```
 
 No hay que tocar el crontab: el cambio está dentro de `run.sh`.
 
-**Rollback**: regresar la versión anterior en `IMAGEN`. Nada más.
+**Rollback**: regresar la versión anterior en `IMAGEN`. El esquema no se revierte, y no hace
+falta: las columnas nuevas tienen valor por omisión, así que una imagen vieja las ignora sin
+enterarse.
 
 ---
 
@@ -359,16 +447,46 @@ instalado en el servidor.
 Rotación de bitácoras, para que `logs/` no crezca sin límite:
 
 ```cron
-0 3 1 * * find /home/docker/notificacion-clientes/logs -name 'envios-*.log' -mtime +90 -delete
+0 3 1 * * find /home/docker/notificacion-clientes/logs -name '*.log' ! -name 'cron.log' -mtime +90 -delete
 ```
+
+El patrón cubre los cuatro prefijos —`envios-`, `revision-vendedores-`, `cobranza-` y
+`seguimiento-`— y deja fuera `cron.log`, que es acumulativo y no rota por fecha.
 
 ---
 
-## 8. Riesgo principal a vigilar
+## 8. Los dos riesgos a vigilar
 
-`Smtp__ModoPrueba` es un booleano en un archivo de texto que separa dos mundos completamente
-distintos: *nadie recibe nada* y *todos los clientes reciben sus CFDI*.
+### `Smtp__ModoPrueba`
+
+Es un booleano en un archivo de texto que separa dos mundos completamente distintos: *nadie recibe
+nada* y *todos los clientes reciben sus CFDI*.
 
 La bitácora ya registra en qué modo corrió cada ejecución (`Modo prueba : SI/NO`). Vale la pena
 revisarla después del primer despliegue en modo real, y tenerlo presente al diagnosticar un
 "no llegaron los correos": lo primero que hay que descartar es que la corrida fue en modo prueba.
+
+### La regla del viernes se degrada en silencio
+
+La cadena que la sostiene tiene tres eslabones, y los tres viven en lugares distintos:
+
+```
+martes 09:00   --cobranza      registra el envío en CorreosCXC.notif.Envio
+     ↓
+mié/jue 10:00  --seguimiento   lee el buzón y marca quién contestó
+     ↓
+viernes 09:00  --cobranza      excluye a los que contestaron
+```
+
+Si el eslabón de en medio deja de correr —se comentó la línea del crontab, IMAP dejó de
+autenticar, el seguimiento se apagó—, **el viernes no falla**: manda el correo a todos, incluidos
+los que ya habían respondido el martes. El daño es reputacional y no deja error.
+
+Lo que sí queda registrado es el encabezado de la bitácora de cobranza:
+
+```
+ Exclusion   : NO - se notifico a todos los clientes con saldo vencido
+```
+
+Un `Exclusion : NO` en la corrida de un viernes es la señal de que la cadena se rompió. Vale la
+pena revisarlo junto con `Modo prueba` después de cada despliegue.
