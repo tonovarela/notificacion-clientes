@@ -10,16 +10,31 @@ salida `0` o `1`. No es un servicio que se queda arriba. Por eso:
 - **No** se usa `restart: always`. El proceso termina y Docker lo reiniciaría en bucle, mandando
   correos repetidos a los clientes.
 - **No** se mete un scheduler dentro del contenedor. Quien agenda es el servidor.
-- El schedule vive en el host (`systemd timer` o `cron`) y cada disparo levanta un contenedor
-  nuevo con `docker run --rm`.
+- El schedule vive en el crontab del host y cada disparo levanta un contenedor nuevo con
+  `docker run --rm`.
 
 Archivos de esta carpeta:
 
 | Archivo | Destino en el servidor | Qué hace |
 |---|---|---|
-| `run.sh` | `/opt/notificacion-clientes/run.sh` | Levanta el contenedor, detecta solapamiento, alerta si falla. |
-| `notificacion-clientes.service` | `/etc/systemd/system/` | Unidad `oneshot` que invoca `run.sh`. |
-| `notificacion-clientes.timer` | `/etc/systemd/system/` | Horario de las corridas. |
+| `run.sh` | `/home/docker/notificacion-clientes/run.sh` | Levanta el contenedor, detecta solapamiento, corta la corrida colgada y alerta si falla. Recibe el proceso como argumento. |
+
+El schedule no es un archivo del repositorio: son dos líneas en el crontab del usuario
+`notificaciones`, que se transcriben en el punto 4.
+
+### Los dos procesos
+
+El mismo ejecutable atiende dos corridas distintas y **el argumento es obligatorio**: sin él no
+manda ningún correo y termina con código `0`, que se ve exactamente igual que una corrida exitosa.
+
+| Proceso | Argumento | Cuándo | Qué manda | Bitácora |
+|---|---|---|---|---|
+| Clientes | `--clientes` | Lun a vie 18:00 | Las facturas del día a cada cliente, con XML y PDF | `envios-*.log` |
+| Vendedores | `--vendedores` | Mar y vie 09:00 | La cartera sin ingresar a revisión a cada vendedor | `revision-vendedores-*.log` |
+
+`run.sh` recibe el proceso sin los guiones (`run.sh clientes`), valida que sea uno de los dos y
+sale con código 64 si no lo es. Cada proceso corre con su propio `--name`, así que si algún día
+sus horarios se empalman no se bloquean entre sí.
 
 ---
 
@@ -43,6 +58,31 @@ docker buildx build \
   --push .
 ```
 
+### Imágenes de prueba
+
+El `Dockerfile` deja `Smtp__ModoPrueba` y `Smtp__ModoPruebaVendedores` en `false` por omisión, y
+expone el argumento `MODO_PRUEBA` para invertirlos sin editar el archivo:
+
+```bash
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --build-arg MODO_PRUEBA=true \
+  -t tonovarela/notificacion-clientes:1.0.2 \
+  --push .
+```
+
+Una imagen así **no le manda nada a ningún cliente**: todo se redirige al buzón de pruebas. Dos
+reglas al usarla:
+
+- **Nunca la etiquetes `latest`.** Es la etiqueta que alguien toma cuando tiene prisa, y una
+  corrida en modo prueba termina con código `0`: se ve idéntica a una exitosa mientras ningún
+  cliente recibe su factura.
+- **Revisa la bitácora, no el código de salida.** El encabezado dice `Modo prueba : SI/NO`; es la
+  única señal que distingue las dos situaciones sin abrir la imagen.
+
+Para pasar a producción sin reconstruir, basta con `Smtp__ModoPrueba=false` en el `.env` del
+servidor: el `--env-file` pisa lo que trae la imagen.
+
 ### Versionado
 
 Etiqueta siempre con versión semántica **además** de `latest`. En producción el schedule apunta a
@@ -53,8 +93,8 @@ martes, el proceso de facturación del miércoles falla sin que nadie haya tocad
 diagnóstico se vuelve un misterio. Con versión fija, el servidor sólo cambia cuando alguien lo
 decide.
 
-En `run.sh` la versión está en la variable `IMAGEN`, no en el timer ni en el crontab. Así el
-rollback es cambiar una línea y el schedule nunca se toca.
+En `run.sh` la versión está en la variable `IMAGEN`, no en el crontab. Así el rollback es cambiar
+una línea y el schedule nunca se toca.
 
 ### Repositorio privado
 
@@ -83,22 +123,37 @@ paso 3.
 
 ## 2. Preparar el servidor
 
+El despliegue vive en `/home/docker/<nombre-del-contenedor>`, que es la convención del servidor:
+una carpeta por aplicación, con todo lo suyo dentro. Aquí el contenedor se llama
+`notificacion-clientes`, así que la carpeta es `/home/docker/notificacion-clientes`.
+
 ```
-/opt/notificacion-clientes/
+/home/docker/notificacion-clientes/
 ├── .env            # credenciales reales — chmod 600
 ├── run.sh          # wrapper que invoca el schedule — chmod 750
 └── logs/           # bitácoras, sobreviven al contenedor
 ```
 
+Todo cuelga de ahí: la configuración, el script y **las bitácoras**. Fuera de esa carpeta no hay
+nada de esta aplicación salvo las dos líneas del crontab.
+
 ```bash
 sudo useradd --system --shell /usr/sbin/nologin notificaciones
 sudo usermod -aG docker notificaciones
 
-sudo mkdir -p /opt/notificacion-clientes/logs
-sudo cp deploy/run.sh /opt/notificacion-clientes/
-sudo chmod 750 /opt/notificacion-clientes/run.sh
-sudo chown -R notificaciones:notificaciones /opt/notificacion-clientes
+sudo mkdir -p /home/docker/notificacion-clientes/logs
+sudo cp deploy/run.sh /home/docker/notificacion-clientes/
+sudo chmod 750 /home/docker/notificacion-clientes/run.sh
+sudo chown -R notificaciones:notificaciones /home/docker/notificacion-clientes
+
+# /home/docker suele existir ya con otros despliegues; el usuario del schedule sólo necesita
+# poder atravesarlo para llegar a su carpeta.
+sudo chmod o+x /home/docker
 ```
+
+`run.sh` deduce su carpeta base de dónde está instalado, así que si mañana el despliegue se mueve
+o la carpeta se llama distinto, el `.env` y las bitácoras lo siguen sin editar nada. Lo único que
+hay que actualizar en ese caso son las dos rutas del crontab.
 
 ### Configuración: sólo variables de entorno
 
@@ -106,11 +161,11 @@ sudo chown -R notificaciones:notificaciones /opt/notificacion-clientes
 pisan. En el servidor **no copies `appsettings.json`**: duplicar el lugar donde viven las
 contraseñas es cómo se termina con dos configuraciones que no coinciden.
 
-Copia `.env.example` del repositorio a `/opt/notificacion-clientes/.env` y ajústalo:
+Copia `.env.example` del repositorio a `/home/docker/notificacion-clientes/.env` y ajústalo:
 
 ```bash
-sudo install -o notificaciones -g notificaciones -m 600 .env.example /opt/notificacion-clientes/.env
-sudo -u notificaciones nano /opt/notificacion-clientes/.env
+sudo install -o notificaciones -g notificaciones -m 600 .env.example /home/docker/notificacion-clientes/.env
+sudo -u notificaciones nano /home/docker/notificacion-clientes/.env
 ```
 
 Valores que **obligatoriamente** cambian respecto al ejemplo:
@@ -138,77 +193,98 @@ El contenedor corre como `USER $APP_UID` (no-root, UID 1654). El `chown` del Doc
 `/app/Logs` **dentro de la imagen**, pero al montar `./logs` del host ese chown queda tapado: manda
 el dueño del directorio del host.
 
-Si `/opt/notificacion-clientes/logs` pertenece a `root`, la aplicación **no puede escribir la
+Si `/home/docker/notificacion-clientes/logs` pertenece a `root`, la aplicación **no puede escribir la
 bitácora**, que es justamente la evidencia que necesitas cuando algo falla:
 
 ```bash
-sudo chown -R 1654:1654 /opt/notificacion-clientes/logs
+sudo chown -R 1654:1654 /home/docker/notificacion-clientes/logs
 ```
 
 Ajusta el UID a lo que devolvió el `id` del paso 1.
 
 ---
 
-## 4. Schedule con systemd (recomendado)
+## 4. Schedule con cron
 
-Frente a cron, systemd da mejor observabilidad (`journalctl`, `systemctl list-timers`), tope de
-duración, limpieza del contenedor huérfano y recuperación de corridas perdidas.
+El schedule vive en el crontab del usuario `notificaciones`, **nunca en el de root**: la corrida
+sólo necesita hablar con el socket de Docker, y ese usuario ya está en el grupo `docker`.
 
 ```bash
-sudo cp deploy/notificacion-clientes.service /etc/systemd/system/
-sudo cp deploy/notificacion-clientes.timer   /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now notificacion-clientes.timer
+sudo -u notificaciones crontab -e
 ```
+
+```cron
+CRON_TZ=America/Mexico_City
+
+# Facturas del día a cada cliente — lunes a viernes 18:00
+0 18 * * 1-5 /home/docker/notificacion-clientes/run.sh clientes   >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
+
+# Cartera sin ingresar a revisión a cada vendedor — martes y viernes 09:00
+0  9 * * 2,5 /home/docker/notificacion-clientes/run.sh vendedores >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
+```
+
+Cuatro cosas de esas líneas que no son decorativas:
+
+- **`CRON_TZ=America/Mexico_City`** es imprescindible si el servidor está en UTC. Sin ella la
+  corrida de las 18:00 caería a las 12:00 hora de México —o cruzaría de día— y la consulta filtra
+  por la fecha del día, así que mandaría las facturas equivocadas. Compruébalo con `date` en el
+  servidor antes de confiarte. `CRON_TZ` es de Vixie cron (Debian, Ubuntu, RHEL); si tu cron no lo
+  soporta, la alternativa es correr a la hora UTC equivalente y ajustarla en cada cambio de
+  horario, que es exactamente el error que esto evita.
+- **La redirección `>> ... 2>&1` no es opcional.** Sin ella cron intenta mandar la salida por
+  correo local, que en un servidor sin MTA se descarta en silencio: perderías el rastro de por qué
+  falló una corrida. `cron.log` guarda lo que imprime `run.sh`; la bitácora detallada de cada
+  corrida es otro archivo, el que escribe la aplicación.
+- **La ruta va absoluta.** El `PATH` de cron es mínimo y su directorio de trabajo es el `$HOME` del
+  usuario, no el del despliegue.
+- **`%` hay que escaparlo.** Cron lo interpreta como fin de comando y salto de línea. No aparece en
+  estas dos líneas, pero muerde en cuanto alguien intenta agregarle un `date +%F` al nombre del log.
 
 Verificación y operación diaria:
 
 ```bash
-systemctl list-timers notificacion-clientes.timer   # próxima corrida
-systemctl start notificacion-clientes.service       # corrida manual ahora
-journalctl -u notificacion-clientes.service -n 100  # salida de la última corrida
-journalctl -u notificacion-clientes.service -f      # seguir en vivo
+sudo -u notificaciones crontab -l          # qué está programado
+tail -f /home/docker/notificacion-clientes/logs/cron.log   # seguir la corrida en vivo
+grep 'run.sh' /var/log/syslog | tail -20   # confirmar que cron sí disparó (journalctl -u cron en RHEL)
+
+# Corrida manual ahora, con el mismo usuario que la corre en automático
+sudo -u notificaciones /home/docker/notificacion-clientes/run.sh clientes
 ```
 
-Detalles del `.timer` que conviene entender antes de ajustarlo:
+Esa última línea es la prueba que vale: correr el script como `root` o como tú puede funcionar
+mientras la corrida programada falla, porque `notificaciones` es quien tiene —o no— acceso al
+socket de Docker y permiso de lectura sobre el `.env`.
 
-- **`Timezone=America/Mexico_City`**: imprescindible si el servidor está en UTC. Sin esta línea la
-  corrida de las 19:00 caería a las 13:00 hora de México, o cruzaría de día, y la consulta filtra
-  por la fecha del día. Requiere systemd 246 o superior (`systemctl --version`).
-- **`Persistent=true`**: si el servidor estaba apagado a la hora programada, la corrida se ejecuta
-  al encender. Recupera **una** corrida, no una por día perdido, así que no genera correos
-  duplicados. Ponlo en `false` si prefieres que una corrida perdida se revise a mano.
-- **`OnCalendar=Mon..Fri 19:00`**: ajusta el horario a cuando ya estén concluidas las facturas del
-  día.
+> **Si la hora llega y no pasa nada**, y `cron.log` está vacío, el sospechoso es el shell del
+> usuario. `notificaciones` se creó con `/usr/sbin/nologin`. Cron ejecuta sus trabajos con
+> `/bin/sh` y no con el shell de login, así que en Debian, Ubuntu y RHEL de fábrica esto funciona;
+> pero si alguien habilitó `pam_shells` en `/etc/pam.d/cron`, PAM rechaza el trabajo **sin dejar
+> rastro en `cron.log`**, porque el trabajo nunca llega a arrancar. Se confirma en el log de cron
+> (`/var/log/syslog` o `journalctl -u cron`) y se arregla agregando `/usr/sbin/nologin` a
+> `/etc/shells`, sin darle shell real al usuario.
 
-Y del `.service`:
+### Lo que cron no hace por ti
 
-- **`Type=oneshot`**: systemd espera a que el proceso termine y considera la unidad fallida si el
-  código de salida es distinto de cero.
-- **`TimeoutStartSec=30min`** con **`ExecStopPost=docker rm -f`**: si systemd tiene que matar una
-  corrida colgada, el contenedor quedaría huérfano y su `--name` bloquearía la corrida del día
-  siguiente. Esa línea lo limpia.
-- **`Restart=no`**: un reintento automático repetiría correos ya enviados a clientes.
+Cron es un disparador y nada más. Estas tres garantías las cubre `run.sh`, no el schedule, y
+conviene saberlo antes de tocarlas:
 
-### Alternativa: cron
-
-Si el servidor no usa systemd:
-
-```cron
-CRON_TZ=America/Mexico_City
-0 19 * * 1-5 /opt/notificacion-clientes/run.sh >> /opt/notificacion-clientes/logs/cron.log 2>&1
-```
-
-`CRON_TZ` cumple el mismo papel que `Timezone=` en el timer y es igual de necesario. El crontab va
-en el usuario `notificaciones`, no en root.
+| Riesgo | Quién lo cubre |
+|---|---|
+| Dos corridas del mismo proceso encimadas | `--name notificacion-clientes-<proceso>`: el segundo `docker run` falla con código 125 y el script lo reporta como corrida omitida, no como falla. |
+| Corrida colgada en el SMTP o en el API | `timeout $TIMEOUT_CORRIDA` (30 min por omisión). Al cortar, `run.sh` borra el contenedor: si quedara vivo, su `--name` bloquearía todas las corridas siguientes. |
+| Corrida perdida por servidor apagado | **Nadie.** Cron no recupera disparos perdidos. Es la razón por la que el punto 7 insiste en una alerta por ausencia: es el único mecanismo que detecta que la corrida simplemente nunca ocurrió. |
 
 ---
 
 ## 5. Qué hace `run.sh`
 
-- **`--name notificacion-clientes` fijo**: es el anti-solapamiento. Si la corrida anterior sigue
-  viva (API lenta, muchos CFDI), el nuevo `docker run` falla de inmediato con código 125 y no se
-  duplican correos. El script distingue ese caso y lo reporta como corrida omitida, no como falla.
+- **Argumento obligatorio**: `clientes` o `vendedores`. Cualquier otra cosa —incluida la ausencia
+  de argumento— sale con código 64 sin levantar nada. Es a propósito: la imagen sin argumentos no
+  manda correos y termina en `0`, y esa falla silenciosa pasaría por corrida exitosa.
+- **`--name notificacion-clientes-<proceso>`**: es el anti-solapamiento. Si la corrida anterior de
+  ese proceso sigue viva (API lenta, muchos CFDI), el nuevo `docker run` falla de inmediato con
+  código 125 y no se duplican correos. El script distingue ese caso y lo reporta como corrida
+  omitida, no como falla. El nombre lleva el proceso para que las dos corridas no se estorben.
 - **`--rm`**: limpia el contenedor y los volúmenes anónimos que genera el `VOLUME` del Dockerfile.
   Sin esto se acumulan con cada corrida.
 - **No hace `docker pull`**: actualizar es un paso de despliegue deliberado, no del schedule.
@@ -217,10 +293,19 @@ en el usuario `notificaciones`, no en root.
 - **Verificaciones previas**: si falta el `.env` o el directorio de logs, falla con un mensaje
   claro sin levantar nada.
 - **Alerta al fallar**: adjunta el encabezado de la última bitácora, que trae el motivo del error.
+- **Carpeta base deducida**: `BASE` sale de la ruta donde está instalado `run.sh`, y de ahí
+  cuelgan `.env` y `logs/`. Mover o renombrar el despliegue no obliga a editar el script; se puede
+  forzar otra ruta exportando `BASE` antes de invocarlo.
+- **Tope de duración** (`TIMEOUT_CORRIDA`, 30 min): envuelve el `docker run` en `timeout`. Al
+  cortar, `timeout` mata al cliente de docker pero **no** al contenedor, así que el script lo borra
+  a mano: si quedara vivo, su `--name` bloquearía todas las corridas siguientes de ese proceso y la
+  falla se propagaría en cadena hasta que alguien lo notara. Si el servidor no tuviera el comando
+  `timeout` —no es el caso en Linux, viene en coreutils— el script avisa y corre sin tope, porque
+  perder la corrida del día por un binario ausente es peor que arriesgar una colgada.
 
 Variables que puedes ajustar sin editar el archivo (o editando la sección de configuración):
-`IMAGEN`, `BASE`, `ARCHIVO_ENV`, `DIRECTORIO_LOGS`, `CORREO_ALERTA`, `URL_MONITOREO`,
-`LIMITE_MEMORIA`, `LIMITE_CPU`.
+`IMAGEN`, `BASE`, `ARCHIVO_ENV`, `DIRECTORIO_LOGS`, `TIMEOUT_CORRIDA`, `CORREO_ALERTA`,
+`URL_MONITOREO`, `LIMITE_MEMORIA`, `LIMITE_CPU`.
 
 ---
 
@@ -230,18 +315,20 @@ Variables que puedes ajustar sin editar el archivo (o editando la sección de co
 # 1. Traer la imagen
 docker pull tonovarela/notificacion-clientes:1.1.0
 
-# 2. Probar en seco, sin tocar a los clientes
+# 2. Probar en seco, sin tocar a los clientes. El argumento del final no es opcional:
+#    sin él la imagen no manda un solo correo y termina en 0, que parece una corrida exitosa.
 docker run --rm \
-  --env-file /opt/notificacion-clientes/.env \
+  --env-file /home/docker/notificacion-clientes/.env \
   -e Smtp__ModoPrueba=true \
-  -v /opt/notificacion-clientes/logs:/app/Logs \
-  tonovarela/notificacion-clientes:1.1.0
+  -e Smtp__ModoPruebaVendedores=true \
+  -v /home/docker/notificacion-clientes/logs:/app/Logs \
+  tonovarela/notificacion-clientes:1.1.0 --clientes
 
 # 3. Si todo salió bien, actualizar la variable IMAGEN en run.sh
-sudo -u notificaciones nano /opt/notificacion-clientes/run.sh
+sudo -u notificaciones nano /home/docker/notificacion-clientes/run.sh
 ```
 
-No hace falta `daemon-reload` ni reiniciar el timer: el cambio está dentro de `run.sh`.
+No hay que tocar el crontab: el cambio está dentro de `run.sh`.
 
 **Rollback**: regresar la versión anterior en `IMAGEN`. Nada más.
 
@@ -252,13 +339,15 @@ No hace falta `daemon-reload` ni reiniciar el timer: el cambio está dentro de `
 La aplicación ya entrega dos señales aprovechables:
 
 1. **Código de salida**: el `catch` de `Program.cs` pone `ExitCode = 1` ante un error fatal.
-   systemd marca la unidad como `failed` y `run.sh` manda la alerta.
+   `run.sh` lo detecta y manda la alerta. Cron no hace nada con ese código —ni siquiera lo
+   registra—, así que `CORREO_ALERTA` es lo único que convierte una falla en un aviso.
 2. **Bitácora en disco**: se escribe **incluso cuando hay error fatal**, con el motivo incluido.
    Un archivo por corrida, `envios-YYYY-MM-DD_HH-mm-ss.log`.
 
 Falta cubrir un tercer caso, que es el que se olvida y el más silencioso:
 
-3. **Alerta por ausencia**. Si el servidor se apaga, Docker muere o alguien deshabilita el timer,
+3. **Alerta por ausencia**. Si el servidor se apaga, Docker muere o alguien comenta la línea del
+   crontab,
    no hay ningún código de salida que falle: simplemente no pasa nada, y nadie se entera hasta que
    un cliente reclama que no recibió su factura. Configura `URL_MONITOREO` en `run.sh` apuntando a
    un healthchecks.io (o Uptime Kuma en modo push) con el periodo esperado: ese servicio avisa
@@ -270,7 +359,7 @@ instalado en el servidor.
 Rotación de bitácoras, para que `logs/` no crezca sin límite:
 
 ```cron
-0 3 1 * * find /opt/notificacion-clientes/logs -name 'envios-*.log' -mtime +90 -delete
+0 3 1 * * find /home/docker/notificacion-clientes/logs -name 'envios-*.log' -mtime +90 -delete
 ```
 
 ---

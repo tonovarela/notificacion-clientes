@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Configuration;
 
 namespace notificacion_clientes.Configuracion
@@ -67,10 +68,35 @@ namespace notificacion_clientes.Configuracion
                     configuracion["Correo:Logo"] ?? Path.Combine("Recursos", "logo.png")),
 
                 // Path.Combine respeta la ruta si viene absoluta, así que sirve para montar un volumen.
+                // La ruta relativa cuelga de la raíz del proyecto, no del ejecutable: si no, en
+                // desarrollo las bitácoras quedarían enterradas en bin/Debug/net8.0/Logs.
                 RutaBitacora = Path.Combine(
-                    AppContext.BaseDirectory,
+                    RaizProyecto,
                     configuracion["Bitacora:Ruta"] ?? "Logs")
             };
+        }
+
+        /// <summary>
+        /// Directorio donde se resuelven las rutas relativas que escribe el programa.
+        /// Se sube por el árbol desde el ejecutable hasta encontrar el .csproj: eso deja las
+        /// bitácoras en la raíz del proyecto durante el desarrollo, en vez de dentro de bin/.
+        /// En la imagen publicada no hay .csproj, así que se queda en /app y nada cambia.
+        /// </summary>
+        private static string RaizProyecto { get; } = LocalizarRaizProyecto();
+
+        private static string LocalizarRaizProyecto()
+        {
+            var directorio = new DirectoryInfo(AppContext.BaseDirectory);
+
+            while (directorio is not null)
+            {
+                if (directorio.EnumerateFiles("*.csproj").Any())
+                    return directorio.FullName;
+
+                directorio = directorio.Parent;
+            }
+
+            return AppContext.BaseDirectory;
         }
     }
 }

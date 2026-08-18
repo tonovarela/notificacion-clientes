@@ -1,4 +1,5 @@
 
+using System.Globalization;
 using notificacion_clientes.Configuracion;
 using notificacion_clientes.DAO;
 using notificacion_clientes.Entity;
@@ -8,8 +9,18 @@ namespace notificacion_clientes
 {
     public class Program
     {
+        /// <summary>
+        /// Los importes y las fechas se formatean en español de México en todo el programa.
+        /// Se fija aquí porque dentro del contenedor no hay LANG y .NET cae en la cultura
+        /// invariante: los montos saldrían como '¤931,872.08' en vez de '$931,872.08'.
+        /// </summary>
+        private static readonly CultureInfo Cultura = new("es-MX");
+
         public static async Task Main(string[] args)
         {
+            CultureInfo.DefaultThreadCurrentCulture = Cultura;
+            CultureInfo.DefaultThreadCurrentUICulture = Cultura;
+
             var inicio = DateTime.Now;
             var settings = AppSettings.Cargar();
             using var httpClient = new HttpClient
@@ -27,8 +38,21 @@ namespace notificacion_clientes
             var reporte = new ReporteConsola();
             var previsualizar = args.Contains("--previsualizar");
 
+
+
             // Dos procesos distintos comparten el mismo ejecutable porque comparten configuración,
             // SMTP y bitácora. Se eligen por argumento para poder programarlos en horarios distintos.
+
+            //Lunes a viernes  6 de la tarde   
+            if (args.Contains("--clientes"))
+            {
+                await EjecutarClientes(
+                notificacionService, plantillaService, correoService,
+                bitacora, reporte, settings, inicio, previsualizar);
+            }
+
+            
+            // Martes y Viernes a las 9 de la mañana
             if (args.Contains("--vendedores"))
             {
                 await EjecutarVendedores(
@@ -37,9 +61,13 @@ namespace notificacion_clientes
                 return;
             }
 
-            await EjecutarClientes(
-                notificacionService, plantillaService, correoService,
-                bitacora, reporte, settings, inicio, previsualizar);
+            Console.WriteLine("Termino de ejecutar el programa.");
+
+
+
+
+
+
         }
 
         private static async Task EjecutarClientes(
