@@ -44,9 +44,6 @@ namespace notificacion_clientes.Services
                 saludo = ArmarSaludo(notificacion),
                 agente = notificacion.Agente,
                 fecha_corte = DateTime.Today.ToString("dd 'de' MMMM 'de' yyyy", Cultura),
-                dias_desde_envio_original = notificacion.DiasDesdeEnvioOriginal,
-                fecha_envio_original = notificacion.EnvioOriginal?.FechaEnvio
-                    .ToString("dd 'de' MMMM 'de' yyyy", Cultura) ?? string.Empty,
                 total_facturas = notificacion.TotalFacturas,
                 dias_vencido_maximo = notificacion.DiasVencidoMaximo,
                 saldos = notificacion.Saldos.Select(s => new
@@ -82,11 +79,8 @@ namespace notificacion_clientes.Services
                 ? $"{importe.ToString("C", CulturaDolares)} USD"
                 : importe.ToString("C", Cultura);
 
-        private static string DescribirMoneda(string moneda) =>
-            EsDolares(moneda) ? "USD" : "MXN";
+        private static string DescribirMoneda(string moneda) => Monedas.Codigo(moneda);
 
-        private static bool EsDolares(string moneda) =>
-            moneda.StartsWith("Dol", StringComparison.OrdinalIgnoreCase)
-            || moneda.Equals("USD", StringComparison.OrdinalIgnoreCase);
+        private static bool EsDolares(string moneda) => Monedas.EsDolares(moneda);
     }
 }

@@ -1,6 +1,3 @@
-
-using System.Data;
-
 using Dapper;
 using Microsoft.Data.SqlClient;
 using notificacion_clientes.Entity;
@@ -8,8 +5,13 @@ using notificacion_clientes.Entity;
 namespace notificacion_clientes.DAO
 {
     /// <summary>
-    /// Lee y escribe CorreosCXC.notif: qué se envió, quién contestó y a quién toca insistirle.
+    /// Escribe en CorreosCXC.notif: deja constancia de cada correo que sale y de en qué acabó.
     /// Requiere permiso de escritura sobre esa base (ver deploy/sql/001-seguimiento.sql).
+    ///
+    /// Casi no lee. Saber a quién le toca el recordatorio de cobranza dejó de resolverse aquí y
+    /// pasó a la consulta de facturas, que cruza la antigüedad de saldos contra estas mismas
+    /// tablas dentro del SELECT (ver <see cref="FacturaDAO.ObtenerFacturasCobranzaVencidaSinContestar"/>).
+    /// La única consulta que queda es la de envíos sin respuesta, que alimenta la lectura del buzón.
     /// </summary>
     public class SeguimientoDAO : ISeguimientoDAO
     {
@@ -27,6 +29,8 @@ namespace notificacion_clientes.DAO
         private const string TablaEnvio = EsquemaSeguimiento + ".Envio";
 
         private const string TablaEnvioFactura = EsquemaSeguimiento + ".EnvioFactura";
+
+        private const string TablaEnvioRecordatorio = EsquemaSeguimiento + ".EnvioRecordatorio";
 
         /// <summary>
         /// El estado viaja como VARCHAR para que la tabla se pueda leer desde el ERP sin decodificar
@@ -65,6 +69,10 @@ namespace notificacion_clientes.DAO
         /// Guarda un envío y las facturas que llevaba, en una sola transacción: un renglón de
         /// Envio sin sus facturas no sirve para reenviar nada, y uno de EnvioFactura sin su
         /// Envio no existe.
+        ///
+        /// Estas dos escrituras son ahora lo único que alimenta la consulta del recordatorio: si
+        /// un envío no queda registrado, sus facturas se ven como nunca notificadas y volverán a
+        /// salir como primer aviso en la siguiente corrida.
         ///
         /// La conexión apunta a Lito y las dos escrituras van a CorreosCXC. Mientras las dos bases
         /// vivan en la misma instancia eso es una transacción local normal; si algún día CorreosCXC
@@ -129,13 +137,15 @@ namespace notificacion_clientes.DAO
         /// Envíos cuya respuesta todavía no conocemos y que por tanto hay que buscar en el buzón.
         /// Incluye los RECORDADO: el cliente puede contestar al recordatorio.
         ///
-        /// A diferencia de la consulta de recordatorios, aquí NO se excluyen los envíos de modo
-        /// prueba. Es deliberado: en modo prueba el correo sí salió, sólo que al buzón de pruebas,
-        /// y contestarlo desde ahí es la única forma de comprobar que el cruce funciona antes de
-        /// que le llegue nada a un cliente. Marcarlos CONTESTADO no dispara nada, porque el
-        /// recordatorio sí los excluye.
+        /// NO se excluyen los envíos de modo prueba. Es deliberado: en modo prueba el correo sí
+        /// salió, sólo que al buzón de pruebas, y contestarlo desde ahí es la única forma de
+        /// comprobar que el cruce funciona antes de que le llegue nada a un cliente.
+        ///
+        /// <paramref name="desde"/> es el tope duro de la ventana. Sin él la búsqueda crecería sin
+        /// límite: nada cierra por vigencia los envíos que nadie contesta, así que un renglón
+        /// atorado en ENVIADO ancla la ventana para siempre.
         /// </summary>
-        public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerParaConciliar(DateTime desde)
+        public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerEnviosSinRespuesta(DateTime desde)
         {
             const string sql = $@"
                 SELECT IdEnvio, Cliente, RazonSocial, Proceso, MessageId, Token, IdEnvioOriginal, Intento,
@@ -146,126 +156,58 @@ namespace notificacion_clientes.DAO
                 ORDER BY FechaEnvio;";
 
             using var conexion = new SqlConnection(_sqlConexion);
-            var filas = await conexion.QueryAsync(sql, new { Desde = desde });
+            var filas = (await conexion.QueryAsync(sql, new { Desde = desde })).ToList();
 
-            return filas.Select(Mapear).ToList();
+            if (filas.Count == 0)
+                return Array.Empty<EnvioNotificacion>();
+
+            var recordatorios = await ObtenerRecordatorios(conexion, filas.Select(f => (int)f.IdEnvio).ToList());
+
+            return filas
+                .Select(f => (EnvioNotificacion)Mapear(f, recordatorios.GetValueOrDefault((int)f.IdEnvio) ?? new List<string>()))
+                .ToList();
         }
 
         /// <summary>
-        /// Fecha del envío pendiente más viejo. Es el punto desde el cual vale la pena leer el
-        /// buzón: más atrás sólo hay correos ya conciliados.
-        /// Null si no hay nada pendiente, en cuyo caso no hace falta ni conectarse al IMAP.
+        /// Anota el recordatorio contra los envíos abiertos que llevaban esas facturas. Se acota
+        /// por MovID y no por cliente: si una factura del cliente ya se pagó, su envío no entró en
+        /// el recordatorio y no debe cerrarse con la respuesta a éste.
+        ///
+        /// Se agrega un renglón por recordatorio en vez de pisar el anterior: así el cliente que
+        /// contesta un correo de hace tres semanas también se detecta. El NOT EXISTS hace que
+        /// repetir la corrida del mismo día no truene contra la llave primaria.
         /// </summary>
-        public async Task<DateTime?> ObtenerFechaPendienteMasAntiguo()
+        public async Task<int> MarcarRecordatorioEnviado(
+            IReadOnlyList<string> movIds,
+            string messageId,
+            DateTime fechaEnvio)
         {
+            if (movIds.Count == 0)
+                return 0;
+
             const string sql = $@"
-                SELECT MIN(FechaEnvio)
-                FROM {TablaEnvio}
-                WHERE Estado IN ('ENVIADO','RECORDADO');";
+                INSERT INTO {TablaEnvioRecordatorio} (IdEnvio, MessageId, FechaEnvio)
+                SELECT DISTINCT ef.IdEnvio, @MessageId, @FechaEnvio
+                FROM {TablaEnvioFactura} ef
+                    JOIN {TablaEnvio} e ON e.IdEnvio = ef.IdEnvio
+                WHERE ef.MovID IN @MovIds
+                  AND e.Estado <> 'CONTESTADO'
+                  AND NOT EXISTS (SELECT 1 FROM {TablaEnvioRecordatorio} r
+                                  WHERE r.IdEnvio = ef.IdEnvio AND r.MessageId = @MessageId);";
 
             using var conexion = new SqlConnection(_sqlConexion);
-            return await conexion.ExecuteScalarAsync<DateTime?>(sql);
+            return await conexion.ExecuteAsync(sql, new { MovIds = movIds, MessageId = messageId, FechaEnvio = fechaEnvio });
         }
 
         /// <summary>
-        /// Los envíos de cobranza abiertos de la semana, indexados por cliente.
+        /// Cierra un envío como contestado. Es lo que saca a sus facturas del recordatorio: la
+        /// consulta de cobranza sin contestar descarta los envíos en CONTESTADO, así que mientras
+        /// nadie llame a este método el cliente seguirá recibiendo el mismo aviso.
         ///
-        /// Es lo que convierte el correo del viernes en un recordatorio de verdad: si el cliente
-        /// ya recibió el del martes y no contestó, el del viernes se cuelga de ese hilo en vez de
-        /// llegar como un correo suelto. Un cliente que apenas cayó en vencido el miércoles no
-        /// aparece aquí, y su correo del viernes sale como primer intento.
-        ///
-        /// Se excluyen los CONTESTADO —a ésos ni siquiera se les escribe— y los FALLIDO, que
-        /// nunca llegaron y por tanto no forman hilo.
-        /// </summary>
-        public async Task<Dictionary<string, EnvioNotificacion>> ObtenerCobranzaAbiertaDeLaSemana(
-            DateTime desde,
-            bool modoPrueba)
-        {
-            const string sql = $@"
-                SELECT IdEnvio, Cliente, RazonSocial, Proceso, MessageId, Token, IdEnvioOriginal, Intento,
-                       Asunto, Destinatarios, ModoPrueba, FechaEnvio, Estado, Error
-                FROM {TablaEnvio}
-                WHERE Proceso    = 'COBRANZA'
-                  AND Estado     = 'ENVIADO'
-                  AND Intento    = 1
-                  AND ModoPrueba = @ModoPrueba
-                  AND FechaEnvio >= @Desde
-                ORDER BY FechaEnvio;";
-
-            using var conexion = new SqlConnection(_sqlConexion);
-            var filas = await conexion.QueryAsync(sql, new { Desde = desde, ModoPrueba = modoPrueba });
-
-            var porCliente = new Dictionary<string, EnvioNotificacion>(StringComparer.OrdinalIgnoreCase);
-
-            // Si hubiera más de uno en la semana, gana el más reciente: es el hilo vivo.
-            foreach (var fila in filas)
-            {
-                var envio = Mapear(fila);
-                porCliente[envio.Cliente] = envio;
-            }
-
-            return porCliente;
-        }
-
-        /// <summary>
-        /// Envíos de cobranza que ya agotaron su vigencia sin respuesta.
-        ///
-        /// Cerrarlos no es cosmético. La conciliación busca en el buzón desde el pendiente más
-        /// viejo, así que un envío que nunca se cierra ancla esa ventana para siempre y la
-        /// búsqueda IMAP crece sin límite. Un correo de cobranza deja de esperar respuesta cuando
-        /// ya salió el siguiente.
-        /// </summary>
-        public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerPendientesDeCierre(DateTime fechaCorte)
-        {
-            const string sql = $@"
-                SELECT IdEnvio, Cliente, RazonSocial, Proceso, MessageId, Token, IdEnvioOriginal, Intento,
-                       Asunto, Destinatarios, ModoPrueba, FechaEnvio, Estado, Error
-                FROM {TablaEnvio}
-                WHERE Proceso    = 'COBRANZA'
-                  AND Estado     IN ('ENVIADO','RECORDADO')
-                  AND FechaEnvio < @FechaCorte
-                ORDER BY FechaEnvio;";
-
-            using var conexion = new SqlConnection(_sqlConexion);
-            var filas = await conexion.QueryAsync(sql, new { FechaCorte = fechaCorte });
-
-            return filas.Select(Mapear).ToList();
-        }
-
-        /// <summary>
-        /// Clientes que ya contestaron un correo de cobranza mandado desde <paramref name="desde"/>.
-        ///
-        /// Es la regla del viernes: a quien contestó el correo del martes no se le vuelve a
-        /// insistir en la misma semana. Se pregunta por cliente y no por envío porque lo que
-        /// importa es si la persona respondió, no a cuál de los correos.
-        ///
-        /// Se compara contra envíos del MISMO modo que la corrida actual, no siempre contra los
-        /// reales. Eso preserva lo importante —una respuesta desde el buzón de pruebas jamás
-        /// excluye a un cliente de un correo de verdad— y además deja la regla comprobable: en
-        /// una corrida de prueba se contrasta contra los envíos de prueba. Con el filtro fijo en
-        /// cero, un ensayo completo nunca excluía a nadie y la regla no se podía verificar.
-        /// </summary>
-        public async Task<HashSet<string>> ObtenerClientesQueContestaronCobranza(DateTime desde, bool modoPrueba)
-        {
-            const string sql = $@"
-                SELECT DISTINCT Cliente
-                FROM {TablaEnvio}
-                WHERE Proceso    = 'COBRANZA'
-                  AND Estado     = 'CONTESTADO'
-                  AND ModoPrueba = @ModoPrueba
-                  AND FechaEnvio >= @Desde;";
-
-            using var conexion = new SqlConnection(_sqlConexion);
-            var clientes = await conexion.QueryAsync<string>(sql, new { Desde = desde, ModoPrueba = modoPrueba });
-
-            return new HashSet<string>(clientes, StringComparer.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
-        /// Cierra un envío como contestado. Guardar el RespuestaMessageId es lo que hace que volver
-        /// a correr la conciliación no reprocese lo ya visto.
-        /// Marca también el envío original si esto era un recordatorio: el hilo es uno solo.
+        /// Si la respuesta fue a un recordatorio, cierra de una vez TODOS los envíos que aquel
+        /// correo cubría. Es lo que pide el sentido común: el cliente contestó un mensaje que le
+        /// reclamaba varias facturas, no una; cerrar sólo una lo dejaría recibiendo el mismo
+        /// recordatorio por el resto.
         /// </summary>
         public async Task MarcarContestado(RespuestaDetectada respuesta)
         {
@@ -277,13 +219,18 @@ namespace notificacion_clientes.DAO
                     RespuestaMessageId = @MessageId,
                     RespuestaAsunto    = @Asunto
                 WHERE IdEnvio = @IdEnvio
-                   OR IdEnvio = @IdEnvioOriginal;";
+                   OR IdEnvio = @IdEnvioOriginal
+                   OR (@RecordatorioMessageId IS NOT NULL
+                       AND Estado <> 'CONTESTADO'
+                       AND IdEnvio IN (SELECT IdEnvio FROM {TablaEnvioRecordatorio}
+                                       WHERE MessageId = @RecordatorioMessageId));";
 
             using var conexion = new SqlConnection(_sqlConexion);
             await conexion.ExecuteAsync(sql, new
             {
                 respuesta.Envio.IdEnvio,
                 respuesta.Envio.IdEnvioOriginal,
+                RecordatorioMessageId = respuesta.RespondioARecordatorio,
                 respuesta.Fecha,
                 respuesta.DeEmail,
                 respuesta.MessageId,
@@ -293,7 +240,7 @@ namespace notificacion_clientes.DAO
 
         /// <summary>
         /// Un rebote no es una respuesta: la dirección no existe o no acepta el correo. Se marca
-        /// FALLIDO para que cobranza la corrija en el CRM, y sale del ciclo de recordatorios.
+        /// FALLIDO para que cobranza la corrija en el CRM.
         /// </summary>
         public async Task MarcarFallidoPorRebote(RespuestaDetectada rebote)
         {
@@ -340,34 +287,25 @@ namespace notificacion_clientes.DAO
             await conexion.ExecuteAsync(sql, new { IdEnvio = idEnvio });
         }
 
-        /// <summary>Las facturas de varios envíos en un solo viaje, agrupadas por IdEnvio.</summary>
-        private static async Task<Dictionary<int, List<FacturaEnviada>>> ObtenerFacturas(
+        /// <summary>Los recordatorios de varios envíos en un solo viaje, agrupados por IdEnvio.</summary>
+        private static async Task<Dictionary<int, List<string>>> ObtenerRecordatorios(
             SqlConnection conexion,
             IReadOnlyCollection<int> idsEnvio)
         {
             const string sql = $@"
-                SELECT IdEnvio, MovID, Total, Moneda
-                FROM {TablaEnvioFactura}
-                WHERE IdEnvio IN @IdsEnvio;";
+                SELECT IdEnvio, MessageId
+                FROM {TablaEnvioRecordatorio}
+                WHERE IdEnvio IN @IdsEnvio
+                ORDER BY FechaEnvio;";
 
             var filas = await conexion.QueryAsync(sql, new { IdsEnvio = idsEnvio });
 
             return filas
                 .GroupBy(f => (int)f.IdEnvio)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.Select(f => new FacturaEnviada
-                    {
-                        MovID = (string)f.MovID,
-                        Total = (decimal)f.Total,
-                        Moneda = (string)f.Moneda
-                    }).ToList());
+                .ToDictionary(g => g.Key, g => g.Select(f => (string)f.MessageId).ToList());
         }
 
-        private static EnvioNotificacion Mapear(dynamic fila) =>
-            Mapear(fila, Array.Empty<FacturaEnviada>());
-
-        private static EnvioNotificacion Mapear(dynamic fila, IReadOnlyList<FacturaEnviada> facturas) =>
+        private static EnvioNotificacion Mapear(dynamic fila, IReadOnlyList<string> recordatorios) =>
             new()
             {
                 IdEnvio = (int)fila.IdEnvio,
@@ -384,7 +322,7 @@ namespace notificacion_clientes.DAO
                 FechaEnvio = (DateTime)fila.FechaEnvio,
                 Estado = EstadoPorNombre[(string)fila.Estado],
                 Error = (string?)fila.Error,
-                Facturas = facturas
+                RecordatorioMessageIds = recordatorios
             };
 
         /// <summary>Las columnas tienen tope y un asunto de correo puede traer cualquier cosa.</summary>

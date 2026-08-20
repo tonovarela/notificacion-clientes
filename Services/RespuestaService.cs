@@ -110,8 +110,29 @@ namespace notificacion_clientes.Services
         {
             var porMessageId = new Dictionary<string, EnvioNotificacion>(StringComparer.OrdinalIgnoreCase);
 
+            // Los ids de recordatorio se indexan aparte: hay que saber cuál de los dos casó, porque
+            // una respuesta al recordatorio cierra todos los envíos que aquel correo cubría y una
+            // al envío original cierra sólo ése.
+            var idsDeRecordatorio = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var pendiente in pendientes)
+            {
                 porMessageId[Normalizar(pendiente.MessageId)] = pendiente;
+
+                // Se indexan TODOS los recordatorios que ha recibido, no sólo el último: el
+                // cliente puede contestar el correo de hace tres semanas.
+                foreach (var recordatorio in pendiente.RecordatorioMessageIds)
+                {
+                    if (string.IsNullOrWhiteSpace(recordatorio))
+                        continue;
+
+                    var idRecordatorio = Normalizar(recordatorio);
+                    idsDeRecordatorio.Add(idRecordatorio);
+
+                    // Varios envíos comparten el mismo id; con quedarse con uno basta para casar.
+                    porMessageId.TryAdd(idRecordatorio, pendiente);
+                }
+            }
 
             var detectadas = new Dictionary<int, RespuestaDetectada>();
 
@@ -131,14 +152,17 @@ namespace notificacion_clientes.Services
                 if (!esRebote && EsAutorespuesta(resumen))
                     continue;
 
-                var envio = CasarPorHilo(resumen, porMessageId, out var criterio)
+                var envio = CasarPorHilo(resumen, porMessageId, out var criterio, out var idCasado)
                             ?? CasarPorRemitenteYAsunto(resumen, pendientes, deEmail, out criterio);
 
                 if (envio is null || detectadas.ContainsKey(envio.IdEnvio))
                     continue;
 
+                var fueRecordatorio = idCasado is not null && idsDeRecordatorio.Contains(idCasado);
+
                 detectadas[envio.IdEnvio] = new RespuestaDetectada
                 {
+                    RespondioARecordatorio = fueRecordatorio ? idCasado : null,
                     Envio = envio,
                     DeEmail = deEmail,
                     Fecha = (resumen.Envelope.Date ?? DateTimeOffset.Now).LocalDateTime,
@@ -159,14 +183,19 @@ namespace notificacion_clientes.Services
         private static EnvioNotificacion? CasarPorHilo(
             IMessageSummary resumen,
             IReadOnlyDictionary<string, EnvioNotificacion> porMessageId,
-            out CriterioCruce criterio)
+            out CriterioCruce criterio,
+            out string? idCasado)
         {
             criterio = CriterioCruce.InReplyTo;
+            idCasado = null;
 
             var enRespuestaA = Normalizar(resumen.Envelope?.InReplyTo ?? string.Empty);
 
             if (enRespuestaA.Length > 0 && porMessageId.TryGetValue(enRespuestaA, out var porInReplyTo))
+            {
+                idCasado = enRespuestaA;
                 return porInReplyTo;
+            }
 
             if (resumen.References is null)
                 return null;
@@ -174,9 +203,12 @@ namespace notificacion_clientes.Services
             // Se recorre al revés: el último id de la cadena es el mensaje al que se contesta.
             foreach (var referencia in resumen.References.Reverse())
             {
-                if (porMessageId.TryGetValue(Normalizar(referencia), out var porReferencia))
+                var id = Normalizar(referencia);
+
+                if (porMessageId.TryGetValue(id, out var porReferencia))
                 {
                     criterio = CriterioCruce.References;
+                    idCasado = id;
                     return porReferencia;
                 }
             }

@@ -6,8 +6,9 @@ namespace notificacion_clientes.Comandos
     /// <summary>
     /// El estado de cuenta vencido a cada cliente. Sale martes y viernes a las 09:00.
     ///
-    /// El viernes se excluye a quien ya contestó el correo del martes: insistirle a alguien que
-    /// respondió hace tres días es la forma más rápida de que el correo deje de leerse.
+    /// Los dos días mandan poblaciones distintas: el martes, facturas que nunca se han notificado;
+    /// el viernes, las ya notificadas que siguen sin respuesta. La consulta hace ese corte, así que
+    /// insistirle a alguien que ya contestó no depende de ninguna regla de este comando.
     /// </summary>
     public class ComandoCobranza
     {
@@ -18,36 +19,33 @@ namespace notificacion_clientes.Comandos
             _dep = dep;
         }
 
-        public async Task Ejecutar(DateTime inicio, bool previsualizar, bool? forzarExclusion)
+        public async Task Ejecutar(DateTime inicio, bool previsualizar, bool? forzarRecordatorio)
         {
-            // La regla es del viernes, pero se decide aquí y no dentro del servicio para que una
-            // corrida manual sea predecible: --con-exclusion y --sin-exclusion la fuerzan.
-            var aplicarExclusion = forzarExclusion ?? (inicio.DayOfWeek == DayOfWeek.Friday);
+            // El día manda, pero se decide aquí y no dentro del servicio para que una corrida
+            // manual sea predecible: --recordatorio y --primer-aviso la fuerzan.
+            var esRecordatorio = forzarRecordatorio ?? (inicio.DayOfWeek == DayOfWeek.Friday);
 
-            var cobranza = new ResultadoCobranza
-            {
-                Notificaciones = Array.Empty<NotificacionCobranza>(),
-                ExcluidosPorRespuesta = Array.Empty<NotificacionCobranza>()
-            };
+            var cobranza = new ResultadoCobranza { Notificaciones = Array.Empty<NotificacionCobranza>() };
             IReadOnlyList<ResultadoEnvio> resultados = Array.Empty<ResultadoEnvio>();
             string? errorFatal = null;
 
             try
             {
-                Console.WriteLine("Obteniendo cobranza vencida...");
+                Console.WriteLine(esRecordatorio
+                    ? "Obteniendo cobranza vencida ya notificada y sin contestar..."
+                    : "Obteniendo cobranza vencida no notificada...");
 
-                if (aplicarExclusion && !_dep.Settings.Seguimiento.Habilitado)
+                if (esRecordatorio && !_dep.Settings.Seguimiento.Habilitado)
                 {
-                    // Sin seguimiento no hay registro de quién contestó, así que la exclusión no
-                    // puede aplicarse. Se avisa fuerte: la alternativa silenciosa es insistirle a
-                    // todos, incluidos los que ya respondieron el martes.
-                    Console.WriteLine("AVISO: toca aplicar la exclusión semanal, pero el seguimiento está");
-                    Console.WriteLine("       deshabilitado (Seguimiento:Habilitado = false). No hay registro de");
-                    Console.WriteLine("       quién contestó, así que se notificará a TODOS los clientes vencidos.");
-                    aplicarExclusion = false;
+                    // La consulta del recordatorio se apoya en lo que Registrar dejó escrito. Con el
+                    // seguimiento apagado no se registra nada, así que esa población queda vacía y
+                    // el correo del viernes no le llegaría a nadie sin que se note por qué.
+                    Console.WriteLine("AVISO: el recordatorio se arma con los envíos ya registrados, pero el");
+                    Console.WriteLine("       seguimiento está deshabilitado (Seguimiento:Habilitado = false).");
+                    Console.WriteLine("       No hay registro de qué se notificó, así que no saldrá ningún correo.");
                 }
 
-                cobranza = await _dep.CobranzaVencida.Preparar(aplicarExclusion, _dep.Settings.Smtp.ModoPrueba);
+                cobranza = await _dep.CobranzaVencida.Preparar(esRecordatorio);
                 _dep.Reporte.ImprimirCobranza(cobranza);
 
                 if (previsualizar)
@@ -65,8 +63,14 @@ namespace notificacion_clientes.Comandos
                 resultados = await _dep.Correo.EnviarCobranza(cobranza.Notificaciones);
                 _dep.Reporte.ImprimirEnvios(resultados, _dep.Settings.Smtp.ModoPrueba);
 
-                if (_dep.Settings.Seguimiento.Habilitado)
+                // El recordatorio no deja registro. Su población sale de las facturas que el
+                // primer aviso ya escribió, así que anotarlo otra vez sólo duplicaría renglones
+                // de EnvioFactura por el mismo MovID —y partiría el estado en dos envíos, de los
+                // cuales marcar uno como CONTESTADO no bastaría para dejar de insistir—.
+                if (_dep.Settings.Seguimiento.Habilitado && !esRecordatorio)
                     await Registrar(cobranza, resultados);
+                else if (_dep.Settings.Seguimiento.Habilitado)
+                    await SellarRecordatorio(cobranza, resultados);
             }
             catch (Exception ex)
             {
@@ -76,23 +80,25 @@ namespace notificacion_clientes.Comandos
             }
 
             var rutaBitacora = await _dep.Bitacora.EscribirCobranza(
-                cobranza, resultados, inicio, aplicarExclusion, errorFatal);
+                cobranza, resultados, inicio, esRecordatorio, errorFatal);
 
             Console.WriteLine();
             Console.WriteLine($"Bitácora: {rutaBitacora}");
         }
 
         /// <summary>
-        /// Sin este registro la regla del viernes no existe: es lo que permite saber quién
-        /// contestó el correo del martes.
+        /// Sin este registro el recordatorio no existe: la consulta del viernes se arma cruzando
+        /// la antigüedad de saldos contra estas dos tablas, así que una factura que no quede
+        /// escrita aquí se seguirá viendo como nunca notificada.
         ///
-        /// El correo del viernes se registra como Intento = 2 ligado al del martes, y marca aquél
-        /// como RECORDADO. Ese orden importa: si el registro del segundo fallara después, el peor
-        /// caso es un correo sin renglón propio —que la bitácora sí reporta— y no un cliente al
-        /// que se le vuelve a escribir el mismo día.
+        /// Aquí sólo llega el primer aviso: el recordatorio no se registra. Por eso todo lo que
+        /// se escribe lleva Intento = 1 e IdEnvioOriginal nulo, y por eso una factura tiene a lo
+        /// más un renglón en EnvioFactura por más veces que se le insista.
         ///
-        /// A diferencia de las facturas del día, aquí no se guardan las facturas del envío: la
-        /// cobranza no reenvía adjuntos y el detalle cambia cada corrida conforme se paga.
+        /// Junto con el envío se guardan las facturas que se le estaban reclamando. Eso es lo que
+        /// convierte el registro en la fuente del recordatorio: la consulta del viernes cruza la
+        /// antigüedad de saldos contra estos renglones, así que una factura que no quede escrita
+        /// aquí se seguirá viendo como nunca notificada.
         /// </summary>
         private async Task Registrar(ResultadoCobranza cobranza, IReadOnlyList<ResultadoEnvio> resultados)
         {
@@ -109,9 +115,6 @@ namespace notificacion_clientes.Comandos
 
                 try
                 {
-                    if (notificacion.EnvioOriginal is { } original)
-                        await _dep.SeguimientoDAO.MarcarRecordado(original.IdEnvio);
-
                     await _dep.SeguimientoDAO.Registrar(new EnvioNotificacion
                     {
                         Cliente = notificacion.Cliente,
@@ -119,14 +122,16 @@ namespace notificacion_clientes.Comandos
                         Proceso = ProcesoEnvio.Cobranza,
                         MessageId = resultado.MessageId,
                         Token = resultado.Token ?? Guid.Empty,
-                        IdEnvioOriginal = notificacion.EnvioOriginal?.IdEnvio,
-                        Intento = (byte)(notificacion.EsRecordatorio ? 2 : 1),
+                        IdEnvioOriginal = null,
+                        // Siempre 1: aquí sólo llega el primer aviso.
+                        Intento = 1,
                         Asunto = resultado.Asunto ?? string.Empty,
                         Destinatarios = string.Join(", ", resultado.Destinatarios),
                         ModoPrueba = _dep.Settings.Smtp.ModoPrueba,
                         FechaEnvio = DateTime.Now,
                         Estado = resultado.Enviado ? EstadoEnvio.Enviado : EstadoEnvio.Fallido,
-                        Error = resultado.Error
+                        Error = resultado.Error,
+                        Facturas = Detallar(notificacion)
                     });
 
                     registrados++;
@@ -141,5 +146,71 @@ namespace notificacion_clientes.Comandos
             Console.WriteLine();
             Console.WriteLine($"Seguimiento: {registrados} envíos de cobranza registrados.");
         }
+
+        /// <summary>
+        /// El recordatorio no genera renglón —duplicaría MovIDs en EnvioFactura—, pero sí deja su
+        /// Message-Id estampado sobre los envíos que cubrió.
+        ///
+        /// Sin eso, la respuesta del cliente a ese correo no casa con nada: su In-Reply-To apunta a
+        /// un id que no está en ninguna parte, y el asunto tampoco sirve porque lleva el prefijo
+        /// "Recordatorio:". El cliente contestaría y se le seguiría insistiendo cada viernes.
+        ///
+        /// Se estampa por MovID y no por cliente: un recordatorio puede juntar facturas de varias
+        /// semanas —y por tanto de varios envíos—, y todos tienen que quedar con el mismo id para
+        /// que una sola respuesta los cierre de golpe.
+        /// </summary>
+        private async Task SellarRecordatorio(ResultadoCobranza cobranza, IReadOnlyList<ResultadoEnvio> resultados)
+        {
+            var porCliente = cobranza.Notificaciones.ToDictionary(n => n.Cliente, StringComparer.OrdinalIgnoreCase);
+            var sellados = 0;
+
+            foreach (var resultado in resultados)
+            {
+                if (!resultado.Enviado || string.IsNullOrWhiteSpace(resultado.MessageId))
+                    continue;
+
+                if (!porCliente.TryGetValue(resultado.Cliente, out var notificacion))
+                    continue;
+
+                var movIds = notificacion.Facturas.Select(f => f.MovID).ToList();
+
+                try
+                {
+                    sellados += await _dep.SeguimientoDAO.MarcarRecordatorioEnviado(
+                        movIds, resultado.MessageId, DateTime.Now);
+                }
+                catch (Exception ex)
+                {
+                    // Se avisa fuerte: el correo ya salió, y sin el sello su respuesta será invisible.
+                    Console.WriteLine($"  AVISO: no se selló el recordatorio de {resultado.Cliente} — {ex.Message}");
+                    Console.WriteLine( "         Si el cliente contesta ese correo, no se detectará.");
+                    Environment.ExitCode = 1;
+                }
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Seguimiento: sin registro nuevo; {sellados} envíos quedaron ligados al recordatorio.");
+        }
+
+        /// <summary>
+        /// Las facturas del correo, como renglones de EnvioFactura.
+        ///
+        /// El importe que se guarda es el vencido, no el total del documento: es la cifra que el
+        /// cliente leyó. Un abono parcial baja el vencido sin cambiar el total, y guardar el total
+        /// haría que la tabla contradijera al correo que sí se mandó.
+        ///
+        /// El servicio ya dejó una factura por MovID —la consulta las repite una vez por
+        /// contacto—, que es justo lo que exige la llave primaria (IdEnvio, MovID). Y como el
+        /// recordatorio no registra, tampoco hay un segundo envío que repita el mismo MovID.
+        /// </summary>
+        private static IReadOnlyList<FacturaEnviada> Detallar(NotificacionCobranza notificacion) =>
+            notificacion.Facturas
+                .Select(f => new FacturaEnviada
+                {
+                    MovID = f.MovID,
+                    Total = f.TotalVencido,
+                    Moneda = Monedas.Codigo(f.Moneda)
+                })
+                .ToList();
     }
 }

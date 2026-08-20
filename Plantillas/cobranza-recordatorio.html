@@ -41,7 +41,7 @@
             <td class="franja-aviso" bgcolor="#fdf6e7" style="background-color:#fdf6e7; padding:20px 32px; border-top:1px solid #f0e3c4; border-bottom:1px solid #f0e3c4;">
               <p style="margin:0 0 10px; font-size:11px; line-height:1.4; letter-spacing:0.09em; text-transform:uppercase; color:#9a5f14;">Recordatorio &middot; sin respuesta</p>
               <p style="margin:0; font-size:15px; line-height:1.5; color:#1f2933;">
-                Le escribimos el <strong>{{ fecha_envio_original }}</strong>{{ if dias_desde_envio_original == 1 }}, hace un día{{ else if dias_desde_envio_original > 1 }}, hace {{ dias_desde_envio_original }} días{{ end }}, y no hemos recibido respuesta.
+                Ya le escribimos sobre estas facturas y no hemos recibido respuesta.
               </p>
               <p style="margin:6px 0 0; font-size:13px; color:#9aa5b1;">Cliente {{ cliente }} &middot; corte al {{ fecha_corte }}</p>
             </td>
@@ -99,7 +99,7 @@
                 </tfoot>
               </table>
               <p style="margin:10px 0 0; font-size:12px; line-height:1.5; color:#9aa5b1;">
-                Este detalle ya considera los pagos aplicados a la fecha, por lo que puede diferir del que le enviamos el {{ fecha_envio_original }}.
+                Este detalle ya considera los pagos aplicados a la fecha, por lo que puede diferir del que le enviamos antes.
               </p>
             </td>
           </tr>

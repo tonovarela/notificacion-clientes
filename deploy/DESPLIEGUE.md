@@ -33,21 +33,25 @@ manda ningún correo y termina con código `64`, imprimiendo el uso.
 | Clientes | `--clientes` | Lun a vie 18:00 | Las facturas del día a cada cliente, con XML y PDF | `envios-*.log` |
 | Vendedores | `--vendedores` | Mar y vie 09:00 | La cartera sin ingresar a revisión a cada vendedor | `revision-vendedores-*.log` |
 | Cobranza | `--cobranza` | Mar y vie 09:00 | El estado de cuenta vencido a cada cliente | `cobranza-*.log` |
-| Seguimiento | `--seguimiento` | Lun a vie 10:00 | Nada: detecta acuses y cierra lo vencido | `seguimiento-*.log` |
+| Respuestas | `--respuestas` | Lun a vie 10:00 | Nada: lee el buzón y marca estados | `respuestas-*.log` |
 
-La regla del viernes de cobranza depende del seguimiento: se excluye a quien contestó el correo
-del martes, y eso sólo se sabe si la conciliación corrió entre medias. Con
-`Seguimiento__Habilitado=false` el proceso avisa en el log y notifica a todos.
+`--cobranza` manda dos poblaciones según el día: el martes, facturas que nunca se han notificado;
+el viernes, las ya notificadas cuyo envío sigue sin contestar. El corte lo hace la consulta,
+cruzando la antigüedad de saldos contra `CorreosCXC.notif`. Con `--recordatorio` o `--primer-aviso`
+se fuerza la población en una corrida manual.
 
-El seguimiento **no manda ningún correo**: sólo lee el buzón, marca quién contestó y cierra los
-envíos de cobranza que agotaron su vigencia. El recordatorio de cobranza es el correo del viernes,
-que sale por `--cobranza` dentro del hilo del martes. `--revisar-respuestas` hace lo mismo sin
-cerrar nada, para ver qué detectaría el cruce antes de tocar la base.
+Por eso el recordatorio necesita `Seguimiento__Habilitado=true`: se arma con lo que quedó
+registrado en `notif.EnvioFactura`, así que sin registro su población sale vacía. El proceso lo
+avisa en el log antes de no mandar nada.
 
-`run.sh` recibe el proceso sin los guiones (`run.sh clientes`), valida que sea uno de los cinco
-válidos —los cuatro de arriba más `revisar-respuestas`— y sale con código 64 si no lo es. Cada
-proceso corre con su propio `--name`, por eso cobranza y vendedores pueden compartir las 09:00 del
-martes y viernes sin bloquearse.
+`--respuestas` es lo que hace útil al recordatorio: abre el buzón por IMAP en sólo lectura, cruza
+los correos contra los `Message-Id` de los envíos abiertos y marca `CONTESTADO` o `FALLIDO` en
+`notif.Envio`. **No manda ningún correo.** Si deja de correr entre el martes y el viernes, el
+recordatorio le llega también a quien ya había contestado.
+
+`run.sh` recibe el proceso sin los guiones (`run.sh clientes`), valida que sea uno de los cuatro
+válidos y sale con código 64 si no lo es. Cada proceso corre con su propio `--name`, por eso
+cobranza y vendedores pueden compartir las 09:00 del martes y viernes sin bloquearse.
 
 ---
 
@@ -192,16 +196,20 @@ Valores que **obligatoriamente** cambian respecto al ejemplo:
 | `Bitacora__Ruta` | `/app/Logs` | Ruta absoluta: `Path.Combine` la respeta tal cual y cae en el volumen montado. |
 | `TZ` | `America/Mexico_City` | Afecta las fechas impresas en el correo. |
 | `Facturas__DiasAtras` | `0` | Días hacia atrás de la consulta de facturas. `0` = sólo las de hoy. Ampliarlo hace que una misma factura abra un envío nuevo cada día. |
-| `Seguimiento__Habilitado` | `true` para cobranza | Sin esto no hay registro de quién contestó, y **la regla del viernes no puede aplicarse**: el correo sale a todos. Exige el script SQL y el permiso de escritura. |
-| `Seguimiento__DiasVigencia` | `7` | Días que un envío de cobranza espera respuesta antes de cerrarse. Cubre el ciclo semanal. |
-| `Seguimiento__DiasVentanaMaxima` | `30` | Tope duro de cuántos días atrás se lee el buzón. Protege aunque algo quede sin cerrar. |
+| `Seguimiento__Habilitado` | `true` para cobranza | Sin esto no se registra nada, y **el recordatorio del viernes se queda sin población**: no sale ningún correo. Exige el script SQL y el permiso de escritura. |
+| `Seguimiento__DiasVentanaMaxima` | `30` | Tope duro de cuántos días atrás se lee el buzón. Nada cierra los envíos sin contestar, así que sin él la búsqueda IMAP crece sin límite. |
 | `Imap__Usuario` / `Imap__Password` | vacíos | Vacíos = se usan los de `Smtp`. Es la misma cuenta; duplicar la credencial es cómo se desincronizan. |
 
 ### Base de datos: el esquema del seguimiento
 
-Hace falta para `--cobranza` y `--seguimiento`. Sin esto, `Seguimiento__Habilitado` tiene que
-quedar en `false`: la aplicación manda los correos igual que siempre, no registra nada, y **la
-regla del viernes no se aplica** — el correo de cobranza sale a todos, hayan contestado o no.
+> **Hay que volver a correr el script.** Se agregó la tabla `notif.EnvioRecordatorio`, que guarda
+> qué recordatorios ha recibido cada envío. El script es idempotente: la crea, migra a ella lo que
+> hubiera en la columna `RecordatorioMessageId` de una versión intermedia, y luego tira esa
+> columna. **Sin correrlo, `--cobranza` y `--respuestas` truenan.**
+
+Hace falta para `--cobranza` y `--respuestas`. Sin esto, `Seguimiento__Habilitado` tiene que
+quedar en `false`: la aplicación manda los correos igual que siempre, no registra nada, y **el
+recordatorio del viernes se queda sin población** — no sale ningún correo.
 
 El seguimiento **no vive en `Lito`**: se crea una base aparte, `CorreosCXC`, con el esquema
 `notif` dentro. Son datos de esta aplicación, no del ERP, y separarlos permite darle escritura al
@@ -275,27 +283,27 @@ CRON_TZ=America/Mexico_City
 0 18 * * 1-5 /home/docker/notificacion-clientes/run.sh clientes   >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
 
 # Estado de cuenta vencido a cada cliente — martes y viernes 09:00
-# El viernes excluye solo a quien contestó el correo del martes; eso requiere el seguimiento
-# encendido y la conciliación de las 10:00 corriendo el miércoles y el jueves.
+# El martes manda lo nunca notificado; el viernes insiste sobre lo que sigue sin contestar.
+# Las dos poblaciones las separa la consulta, y ambas requieren Seguimiento__Habilitado=true.
 0  9 * * 2,5 /home/docker/notificacion-clientes/run.sh cobranza   >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
 
 # Cartera sin ingresar a revisión a cada vendedor — martes y viernes 09:00
 0  9 * * 2,5 /home/docker/notificacion-clientes/run.sh vendedores >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
 
-# Acuses y cierre de vencidos — lunes a viernes 10:00. Sólo si el seguimiento está encendido.
-# Alimenta la regla del viernes de cobranza; no manda ningún correo.
-0 10 * * 1-5 /home/docker/notificacion-clientes/run.sh seguimiento >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
+# Lectura del buzón y marcado de estados — lunes a viernes 10:00. No manda correo.
+# Es lo que evita que el recordatorio del viernes le insista a quien ya contestó.
+0 10 * * 1-5 /home/docker/notificacion-clientes/run.sh respuestas >> /home/docker/notificacion-clientes/logs/cron.log 2>&1
 ```
+
+La hora de `respuestas` no es arbitraria: va **después** de que la gente abrió su correo por la
+mañana y **antes** del envío de las 18:00. Correrlo de madrugada no vería las respuestas de la
+noche anterior que todavía no habían llegado al buzón.
 
 Cobranza y vendedores comparten la hora a propósito: son dos correos distintos, a destinatarios
 distintos, y cada uno corre en su propio contenedor —`notificacion-clientes-cobranza` y
 `notificacion-clientes-vendedores`—, así que el candado anti-solapamiento no los enfrenta. Lo
 único que comparten es la cuenta SMTP, y dos conexiones simultáneas no son problema para ella.
 Si algún día se quisieran separar, mover una a `15 9 * * 2,5` basta.
-
-La hora del seguimiento no es arbitraria: va **después** de que la gente abrió su correo por la
-mañana y **antes** del envío de las 18:00. Correrlo de madrugada contaría como "sin respuesta" a
-quien contestó la noche anterior y todavía no aparecía en el buzón.
 
 Cuatro cosas de esas líneas que no son decorativas:
 
@@ -324,12 +332,9 @@ grep 'run.sh' /var/log/syslog | tail -20   # confirmar que cron sí disparó (jo
 # Corrida manual ahora, con el mismo usuario que la corre en automático
 sudo -u notificaciones /home/docker/notificacion-clientes/run.sh clientes
 
-# Ver qué respuestas detectaría el cruce, sin cerrar nada ni mandar correo
-sudo -u notificaciones /home/docker/notificacion-clientes/run.sh revisar-respuestas
-
-# Ver el correo de cobranza sin enviarlo. --con-exclusion / --sin-exclusion fuerzan
-# la regla del viernes, que si no se decide por el día en que se corre.
-sudo -u notificaciones /home/docker/notificacion-clientes/run.sh cobranza --previsualizar --sin-exclusion
+# Ver el correo de cobranza sin enviarlo. --recordatorio / --primer-aviso fuerzan
+# la población, que si no se decide por el día en que se corre.
+sudo -u notificaciones /home/docker/notificacion-clientes/run.sh cobranza --previsualizar --primer-aviso
 ```
 
 Esa última línea es la prueba que vale: correr el script como `root` o como tú puede funcionar
@@ -451,7 +456,7 @@ Rotación de bitácoras, para que `logs/` no crezca sin límite:
 ```
 
 El patrón cubre los cuatro prefijos —`envios-`, `revision-vendedores-`, `cobranza-` y
-`seguimiento-`— y deja fuera `cron.log`, que es acumulativo y no rota por fecha.
+`respuestas-`— y deja fuera `cron.log`, que es acumulativo y no rota por fecha.
 
 ---
 
@@ -466,27 +471,44 @@ La bitácora ya registra en qué modo corrió cada ejecución (`Modo prueba : SI
 revisarla después del primer despliegue en modo real, y tenerlo presente al diagnosticar un
 "no llegaron los correos": lo primero que hay que descartar es que la corrida fue en modo prueba.
 
-### La regla del viernes se degrada en silencio
+### El recordatorio se degrada en silencio
 
-La cadena que la sostiene tiene tres eslabones, y los tres viven en lugares distintos:
+La cadena que lo sostiene tiene tres eslabones, y los tres viven en lugares distintos:
 
 ```
-martes 09:00   --cobranza      registra el envío en CorreosCXC.notif.Envio
+martes 09:00   --cobranza     registra el envío y sus facturas en CorreosCXC.notif
      ↓
-mié/jue 10:00  --seguimiento   lee el buzón y marca quién contestó
+viernes 09:00  --cobranza     insiste; NO registra, sólo estampa su Message-Id
+                              sobre los envíos que ese recordatorio cubrió
      ↓
-viernes 09:00  --cobranza      excluye a los que contestaron
+L–V 10:00      --respuestas   lee el buzón y marca CONTESTADO: al envío si
+                              contestaron el del martes, o a TODO el grupo si
+                              contestaron el recordatorio
 ```
+
+Contestar el recordatorio cierra de golpe todos los envíos que ese correo reclamaba, aunque vengan
+de semanas distintas. Contestar el del martes cierra sólo ése.
 
 Si el eslabón de en medio deja de correr —se comentó la línea del crontab, IMAP dejó de
-autenticar, el seguimiento se apagó—, **el viernes no falla**: manda el correo a todos, incluidos
-los que ya habían respondido el martes. El daño es reputacional y no deja error.
+autenticar, el seguimiento se apagó—, **el viernes no falla**: le manda el recordatorio también a
+quien ya había contestado el martes. El daño es reputacional y no deja error.
 
-Lo que sí queda registrado es el encabezado de la bitácora de cobranza:
+**Pendiente conocido:** la ventana de búsqueda se mide contra `Envio.FechaEnvio`, que es la del
+primer aviso. Un cliente al que se le lleva insistiendo más de `DiasVentanaMaxima` días queda fuera
+del cruce, así que **su respuesta al recordatorio de ayer no se detecta** — y son justo los morosos
+más viejos, los que más recordatorios reciben. El arreglo es comparar contra la fecha más reciente
+entre el envío y su último recordatorio, que ya se guarda en `notif.EnvioRecordatorio.FechaEnvio`.
+
+Peor que antes en un punto: ya nada cierra por vigencia los envíos que nadie contesta, así que un
+renglón atorado en `ENVIADO` se queda ahí. `Seguimiento__DiasVentanaMaxima` es lo único que evita
+que la búsqueda IMAP crezca sin límite.
+
+Lo que sí queda registrado es el encabezado de las dos bitácoras:
 
 ```
- Exclusion   : NO - se notifico a todos los clientes con saldo vencido
+ Poblacion   : RECORDATORIO - facturas ya notificadas que siguen sin contestar
+   Marcados CONTESTADO    : 0
 ```
 
-Un `Exclusion : NO` en la corrida de un viernes es la señal de que la cadena se rompió. Vale la
-pena revisarlo junto con `Modo prueba` después de cada despliegue.
+Un `Marcados CONTESTADO : 0` varios días seguidos en `respuestas-*.log` es la señal de que la
+cadena se rompió. Vale la pena revisarlo junto con `Modo prueba` después de cada despliegue.

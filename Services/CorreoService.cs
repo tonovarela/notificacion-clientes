@@ -244,26 +244,16 @@ namespace notificacion_clientes.Services
             var mensaje = new MimeMessage();
             mensaje.From.Add(new MailboxAddress(_settings.RemitenteNombre, _settings.RemitenteEmail));
 
-            // El correo del viernes cuelga del hilo del martes: al cliente le llega como
-            // continuación de la conversación y no como un segundo correo suelto. Los headers
-            // In-Reply-To y References son además lo que hace que su respuesta caiga en la misma
-            // cadena, que es justo lo que sabe leer la conciliación.
-            if (notificacion.EnvioOriginal is { } original)
-            {
-                mensaje.Subject = original.Asunto.StartsWith("Re:", StringComparison.OrdinalIgnoreCase)
-                    ? original.Asunto
-                    : $"Re: {original.Asunto}";
+            // El recordatorio ya no cuelga del hilo del martes. Para poner In-Reply-To y References
+            // hacía falta el Message-Id de aquel correo, que se recuperaba del seguimiento; ahora la
+            // población del viernes sale de la consulta de facturas y ese envío no se busca. Se
+            // distingue por el asunto, que es lo único que queda para avisarle al cliente que es
+            // insistencia y no un duplicado.
+            mensaje.Subject = notificacion.EsRecordatorio
+                ? $"Recordatorio: estado de cuenta con saldo vencido - {notificacion.RazonSocial}"
+                : $"Estado de cuenta con saldo vencido - {notificacion.RazonSocial}";
 
-                Sellar(mensaje);
-
-                mensaje.InReplyTo = original.MessageId;
-                mensaje.References.Add(original.MessageId);
-            }
-            else
-            {
-                mensaje.Subject = $"Estado de cuenta con saldo vencido - {notificacion.RazonSocial}";
-                Sellar(mensaje);
-            }
+            Sellar(mensaje);
 
             foreach (var destinatario in ObtenerDestinatariosCobranza(notificacion))
                 mensaje.To.Add(destinatario);

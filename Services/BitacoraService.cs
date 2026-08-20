@@ -109,36 +109,33 @@ namespace notificacion_clientes.Services
         }
 
         /// <summary>
-        /// Bitacora de la corrida de seguimiento: acuses detectados, recordatorios enviados y
-        /// envios cerrados sin respuesta. Archivo aparte (seguimiento-*.log) por el mismo motivo
-        /// que el de vendedores: son corridas distintas y mezclarlas complica la lectura.
+        /// Bitacora de la lectura del buzon: que envios se revisaron y cuales cambiaron de estado.
+        /// Archivo aparte (respuestas-*.log) por el mismo motivo que los demas: son corridas
+        /// distintas y mezclarlas complica la lectura.
         /// </summary>
-        public async Task<string> EscribirSeguimiento(
-            ResultadoSeguimiento resultado,
+        public async Task<string> EscribirRespuestas(
+            ResultadoRespuestas resultado,
             DateTime inicio,
             string? errorFatal = null)
         {
             Directory.CreateDirectory(_directorio);
 
-            var ruta = Path.Combine(_directorio, $"seguimiento-{inicio.ToString(FormatoNombreArchivo, Cultura)}.log");
+            var ruta = Path.Combine(_directorio, $"respuestas-{inicio.ToString(FormatoNombreArchivo, Cultura)}.log");
             var contenido = new StringBuilder();
 
             contenido.AppendLine(Separador);
-            contenido.AppendLine(" BITACORA DE SEGUIMIENTO - ACUSES Y RECORDATORIOS");
+            contenido.AppendLine(" BITACORA DE RESPUESTAS - LECTURA DEL BUZON");
             contenido.AppendLine(Separador);
             contenido.AppendLine($" Inicio      : {inicio.ToString(FormatoFechaHora, Cultura)}");
             contenido.AppendLine($" Fin         : {DateTime.Now.ToString(FormatoFechaHora, Cultura)}");
             contenido.AppendLine($" Equipo      : {Environment.MachineName}");
-            contenido.AppendLine($" Remitente   : {_smtp.RemitenteNombre} <{_smtp.RemitenteEmail}>");
-            contenido.AppendLine(_smtp.ModoPrueba
-                ? $" Modo prueba : SI - los recordatorios se redirigieron a {_smtp.CorreoPrueba}"
-                : " Modo prueba : NO - los recordatorios se enviaron a los contactos reales del cliente");
+            contenido.AppendLine($" Buzon       : {_smtp.RemitenteNombre} <{_smtp.RemitenteEmail}>");
+            contenido.AppendLine(" Correos     : NO - esta corrida solo lee el buzon y actualiza estados");
             contenido.AppendLine(SeparadorTenue);
             contenido.AppendLine(" RESUMEN");
-            contenido.AppendLine($"   Envios revisados       : {resultado.Conciliados}");
-            contenido.AppendLine($"   Acuses detectados      : {resultado.Respuestas.Count}");
-            contenido.AppendLine($"   Rebotes detectados     : {resultado.Rebotes.Count}");
-            contenido.AppendLine($"   Cerrados sin respuesta : {resultado.Cerrados.Count}");
+            contenido.AppendLine($"   Envios revisados       : {resultado.Revisados}");
+            contenido.AppendLine($"   Marcados CONTESTADO    : {resultado.Respuestas.Count}");
+            contenido.AppendLine($"   Marcados FALLIDO       : {resultado.Rebotes.Count}");
 
             if (errorFatal is not null)
             {
@@ -149,12 +146,52 @@ namespace notificacion_clientes.Services
             contenido.AppendLine(Separador);
 
             EscribirAcuses(contenido, resultado);
-            EscribirCerrados(contenido, resultado);
 
             await File.WriteAllTextAsync(ruta, contenido.ToString(), new UTF8Encoding(false));
 
             return ruta;
         }
+
+        private static void EscribirAcuses(StringBuilder contenido, ResultadoRespuestas resultado)
+        {
+            if (resultado.Respuestas.Count == 0 && resultado.Rebotes.Count == 0)
+            {
+                contenido.AppendLine();
+                contenido.AppendLine("No se detecto ninguna respuesta nueva en esta corrida.");
+                return;
+            }
+
+            var consecutivo = 0;
+
+            foreach (var respuesta in resultado.Respuestas)
+            {
+                consecutivo++;
+                contenido.AppendLine();
+                contenido.AppendLine($"[{consecutivo:D3}] CONTESTADO | Cliente {respuesta.Envio.Cliente} - {respuesta.Envio.RazonSocial}");
+                contenido.AppendLine($"      Envio original : {respuesta.Envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)} (intento {respuesta.Envio.Intento})");
+                contenido.AppendLine($"      Respondio      : {respuesta.DeEmail} el {respuesta.Fecha.ToString(FormatoFechaHora, Cultura)}");
+                contenido.AppendLine($"      Asunto         : {respuesta.Asunto}");
+                contenido.AppendLine($"      Cruce          : {DescribirCriterio(respuesta.Criterio)}");
+            }
+
+            foreach (var rebote in resultado.Rebotes)
+            {
+                consecutivo++;
+                contenido.AppendLine();
+                contenido.AppendLine($"[{consecutivo:D3}] REBOTE | Cliente {rebote.Envio.Cliente} - {rebote.Envio.RazonSocial}");
+                contenido.AppendLine($"      Envio original : {rebote.Envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)}");
+                contenido.AppendLine($"      Destinatarios  : {rebote.Envio.Destinatarios}");
+                contenido.AppendLine($"      Motivo         : {rebote.Asunto}");
+                contenido.AppendLine("      AVISO          : la direccion no acepto el correo; hay que corregirla en el CRM");
+            }
+        }
+
+        private static string DescribirCriterio(CriterioCruce criterio) => criterio switch
+        {
+            CriterioCruce.InReplyTo => "In-Reply-To",
+            CriterioCruce.References => "References (cadena del hilo)",
+            _ => "remitente + asunto (aproximado)"
+        };
 
         /// <summary>
         /// Bitacora de la corrida de cobranza vencida. Archivo aparte (cobranza-*.log) por el
@@ -164,7 +201,7 @@ namespace notificacion_clientes.Services
             ResultadoCobranza cobranza,
             IReadOnlyList<ResultadoEnvio> resultados,
             DateTime inicio,
-            bool aplicoExclusionSemanal,
+            bool esRecordatorio,
             string? errorFatal = null)
         {
             Directory.CreateDirectory(_directorio);
@@ -183,16 +220,15 @@ namespace notificacion_clientes.Services
             contenido.AppendLine(_smtp.ModoPrueba
                 ? $" Modo prueba : SI - ningun correo llego al cliente, se redirigio a {_smtp.CorreoPrueba}"
                 : " Modo prueba : NO - los correos se enviaron a los contactos reales del cliente");
-            contenido.AppendLine(aplicoExclusionSemanal
-                ? " Exclusion   : SI - se omitio a quien ya contesto el correo de esta semana"
-                : " Exclusion   : NO - se notifico a todos los clientes con saldo vencido");
+            contenido.AppendLine(esRecordatorio
+                ? " Poblacion   : RECORDATORIO - facturas ya notificadas que siguen sin contestar"
+                : " Poblacion   : PRIMER AVISO - facturas vencidas que no se habian notificado");
             contenido.AppendLine($" Copia oculta: {DescribirCopiaOculta()}");
             contenido.AppendLine(SeparadorTenue);
             contenido.AppendLine(" RESUMEN");
             contenido.AppendLine($"   Clientes por notificar : {cobranza.Notificaciones.Count}");
             contenido.AppendLine($"   Correos enviados       : {enviados}");
             contenido.AppendLine($"   Correos fallidos       : {resultados.Count - enviados}");
-            contenido.AppendLine($"   Excluidos por respuesta: {cobranza.ExcluidosPorRespuesta.Count}");
 
             foreach (var saldo in TotalizarPorMoneda(cobranza.Notificaciones))
                 contenido.AppendLine($"   Saldo vencido {saldo.Moneda,-10}: {FormatearImporte(saldo.Total, saldo.Moneda)}");
@@ -206,7 +242,6 @@ namespace notificacion_clientes.Services
             contenido.AppendLine(Separador);
 
             EscribirDetalleCobranza(contenido, cobranza, resultados);
-            EscribirExcluidos(contenido, cobranza);
 
             await File.WriteAllTextAsync(ruta, contenido.ToString(), new UTF8Encoding(false));
 
@@ -260,21 +295,6 @@ namespace notificacion_clientes.Services
             }
         }
 
-        private static void EscribirExcluidos(StringBuilder contenido, ResultadoCobranza cobranza)
-        {
-            if (cobranza.ExcluidosPorRespuesta.Count == 0)
-                return;
-
-            contenido.AppendLine();
-            contenido.AppendLine(SeparadorTenue);
-            contenido.AppendLine(" EXCLUIDOS - ya contestaron el correo de esta semana");
-            contenido.AppendLine(SeparadorTenue);
-
-            foreach (var notificacion in cobranza.ExcluidosPorRespuesta)
-                contenido.AppendLine($"      Cliente {notificacion.Cliente} - {notificacion.RazonSocial}" +
-                                     $" | {notificacion.TotalFacturas} facturas | {DescribirSaldos(notificacion)}");
-        }
-
         private static string DescribirSaldos(NotificacionCobranza notificacion) =>
             string.Join(" + ", notificacion.Saldos.Select(s => FormatearImporte(s.Total, s.Moneda)));
 
@@ -291,66 +311,6 @@ namespace notificacion_clientes.Services
                 ? $"{importe.ToString("C", CultureInfo.GetCultureInfo("en-US"))} USD"
                 : importe.ToString("C", Cultura);
 
-        private static void EscribirAcuses(StringBuilder contenido, ResultadoSeguimiento resultado)
-        {
-            if (resultado.Respuestas.Count == 0 && resultado.Rebotes.Count == 0)
-            {
-                contenido.AppendLine();
-                contenido.AppendLine("No se detecto ninguna respuesta nueva en esta corrida.");
-                return;
-            }
-
-            var consecutivo = 0;
-
-            foreach (var respuesta in resultado.Respuestas)
-            {
-                consecutivo++;
-                contenido.AppendLine();
-                contenido.AppendLine($"[{consecutivo:D3}] CONTESTADO | Cliente {respuesta.Envio.Cliente} - {respuesta.Envio.RazonSocial}");
-                contenido.AppendLine($"      Envio original : {respuesta.Envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)} (intento {respuesta.Envio.Intento})");
-                contenido.AppendLine($"      Respondio      : {respuesta.DeEmail} el {respuesta.Fecha.ToString(FormatoFechaHora, Cultura)}");
-                contenido.AppendLine($"      Asunto         : {respuesta.Asunto}");
-                contenido.AppendLine($"      Cruce          : {DescribirCriterio(respuesta.Criterio)}");
-            }
-
-            foreach (var rebote in resultado.Rebotes)
-            {
-                consecutivo++;
-                contenido.AppendLine();
-                contenido.AppendLine($"[{consecutivo:D3}] REBOTE | Cliente {rebote.Envio.Cliente} - {rebote.Envio.RazonSocial}");
-                contenido.AppendLine($"      Envio original : {rebote.Envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)}");
-                contenido.AppendLine($"      Destinatarios  : {rebote.Envio.Destinatarios}");
-                contenido.AppendLine($"      Motivo         : {rebote.Asunto}");
-                contenido.AppendLine("      AVISO          : la direccion no acepto el correo; hay que corregirla en el CRM");
-            }
-        }
-
-        private static void EscribirCerrados(StringBuilder contenido, ResultadoSeguimiento resultado)
-        {
-            if (resultado.Cerrados.Count == 0)
-                return;
-
-            contenido.AppendLine();
-            contenido.AppendLine(SeparadorTenue);
-            contenido.AppendLine(" COBRANZA CERRADA SIN RESPUESTA - agoto su vigencia, revisar a mano");
-            contenido.AppendLine(SeparadorTenue);
-
-            foreach (var envio in resultado.Cerrados)
-            {
-                contenido.AppendLine();
-                contenido.AppendLine($"      Cliente {envio.Cliente} - {envio.RazonSocial}");
-                contenido.AppendLine($"        Envio original : {envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)}");
-                contenido.AppendLine($"        Destinatarios  : {envio.Destinatarios}");
-                contenido.AppendLine($"        Intento        : {envio.Intento}");
-            }
-        }
-
-        private static string DescribirCriterio(CriterioCruce criterio) => criterio switch
-        {
-            CriterioCruce.InReplyTo => "In-Reply-To",
-            CriterioCruce.References => "References (cadena del hilo)",
-            _ => "remitente + asunto (aproximado)"
-        };
 
         private static void EscribirDetalleVendedores(
             StringBuilder contenido,

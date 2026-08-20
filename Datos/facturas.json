@@ -2,7 +2,7 @@
   {
     "Cliente": "1001",
     "RazonSocial": "Comercializadora del Norte SA de CV",
-    "Importe": 15420.50,
+    "Importe": 15420.5,
     "Ejercicio": "2026",
     "Periodo": "08",
     "Nombre": "MARIA LOPEZ",
@@ -13,7 +13,7 @@
   {
     "Cliente": "1001",
     "RazonSocial": "Comercializadora del Norte SA de CV",
-    "Importe": 8300.00,
+    "Importe": 8300.0,
     "Ejercicio": "2026",
     "Periodo": "08",
     "Nombre": "MARIA LOPEZ",
@@ -29,13 +29,13 @@
     "Periodo": "08",
     "Nombre": "JUAN PEREZ",
     "Cargo": "Compras",
-    "Email": "tonovarelaq@gmail.com",
+    "Email": "mestelles@litoprocess.com",
     "MovID": "CFDI-100236"
   },
   {
     "Cliente": "1002",
     "RazonSocial": "Distribuidora Central de Occidente SA de CV",
-    "Importe": 42000.00,
+    "Importe": 42000.0,
     "Ejercicio": "2026",
     "Periodo": "08",
     "Nombre": "ANA TORRES",
@@ -46,7 +46,7 @@
   {
     "Cliente": "1003",
     "RazonSocial": "Grupo Industrial Pacifico SA de CV",
-    "Importe": 990.00,
+    "Importe": 990.0,
     "Ejercicio": "2026",
     "Periodo": "08",
     "Nombre": "SIN CONTACTO",

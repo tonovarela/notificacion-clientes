@@ -19,6 +19,13 @@ namespace notificacion_clientes.Entity
         /// <summary>Documento completo como se ve en el ERP: "Factura Electronica CFDI12345".</summary>
         public required string Factura { get; set; }
 
+        /// <summary>
+        /// El folio a secas: "CFDI12345". Es lo que se guarda en EnvioFactura, y va sin el prefijo
+        /// del tipo de documento para que case con el MovID que usan las facturas del día: las dos
+        /// tablas se cruzan por esta columna para saber si una factura ya se notificó.
+        /// </summary>
+        public required string MovID { get; set; }
+
         public required DateTime FechaEmision { get; set; }
 
         /// <summary>Condición de pago pactada: "30 Dias", "50% Anticipo Resto 8 días", etc.</summary>

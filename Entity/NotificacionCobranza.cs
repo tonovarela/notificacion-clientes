@@ -22,20 +22,14 @@ namespace notificacion_clientes.Entity
         public required IReadOnlyList<FacturaCobranzaVencida> Facturas { get; init; }
 
         /// <summary>
-        /// El envío de esta misma semana al que hay que colgarse, si existe.
+        /// True cuando el correo insiste sobre facturas ya notificadas que nadie contestó.
         ///
-        /// Null en el correo del martes —es el primer intento— y en el de un cliente que apenas
-        /// cayó en vencido a media semana. Cuando trae valor, el correo sale como recordatorio
-        /// dentro de ese hilo y no como un mensaje suelto.
+        /// Lo fija el servicio según la consulta que corrió, y sólo decide qué plantilla se usa.
+        /// Antes se deducía del envío del martes que se recuperaba del seguimiento, lo que además
+        /// permitía colgar el recordatorio de ese hilo de correo; ahora la población sale de la
+        /// consulta y ese envío ya no se busca, así que el recordatorio va como mensaje suelto.
         /// </summary>
-        public EnvioNotificacion? EnvioOriginal { get; init; }
-
-        /// <summary>True cuando este correo es el segundo intento de la semana.</summary>
-        public bool EsRecordatorio => EnvioOriginal is not null;
-
-        /// <summary>Días desde el primer correo de la semana. Cero si éste es el primero.</summary>
-        public int DiasDesdeEnvioOriginal =>
-            EnvioOriginal is null ? 0 : Math.Max(0, (DateTime.Today - EnvioOriginal.FechaEnvio.Date).Days);
+        public bool EsRecordatorio { get; init; }
 
         public int TotalFacturas => Facturas.Count;
 

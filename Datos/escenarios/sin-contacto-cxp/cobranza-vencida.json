@@ -1,0 +1,18 @@
+[
+  {
+    "Cliente": "2005",
+    "RazonSocial": "Aceros y Perfiles del Centro SA de CV",
+    "Factura": "Factura Electronica CFDI-200900",
+    "MovID": "CFDI-200900",
+    "FechaEmision": "2026-06-10",
+    "Condicion": "30 Dias",
+    "Vencimiento": "2026-07-10",
+    "Moneda": "Pesos",
+    "TotalVencido": 15000.0,
+    "NombreAgente": "Carlos Ramirez",
+    "Tratamiento": null,
+    "Nombre": null,
+    "Cargo": null,
+    "Email": null
+  }
+]

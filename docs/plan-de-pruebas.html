@@ -408,6 +408,8 @@
   .estado.ok    { background: var(--accent-soft); color: var(--accent); }
   .estado.demo  { background: var(--warn-soft);   color: var(--warn); }
   .estado.falta { background: var(--crit-soft);   color: var(--crit); }
+  .estado.baja  { background: var(--surface-alt);  color: var(--ink-faint); }
+  tr.retirado td:not(:last-child) { color: var(--ink-faint); }
 
   .paso { display: grid; grid-template-columns: 30px 1fr; gap: 0 18px; border-top: 1px solid var(--line-soft); padding-top: 18px; }
   .paso .num { font-family: var(--mono); font-size: 15px; color: var(--accent); font-weight: 600; padding-top: 2px; }
@@ -434,17 +436,17 @@
     <h1>Cómo Probar el Sistema</h1>
     <p class="bajada">Qué se demuestra en la junta, con qué comandos, y qué resultado tiene que salir en pantalla para dar cada caso por bueno.</p>
     <div class="ficha">
-      <span><b>Procesos</b> 5 comandos</span>
-      <span><b>Casos</b> 34</span>
+      <span><b>Procesos</b> 4 comandos</span>
+      <span><b>Casos</b> 39</span>
       <span><b>Demo en vivo</b> ~20 min</span>
-      <span><b>Fecha</b> 18 ago 2026</span>
+      <span><b>Fecha</b> 20 ago 2026</span>
     </div>
     <p class="revision"><b>Nada de lo que se corre en la junta le llega a un cliente.</b> Toda la demo va con <code>Smtp__ModoPrueba=true</code>, que redirige el 100% de los correos al buzón de pruebas, y la mayoría de los pasos usan <code>--previsualizar</code>, que ni siquiera abre el SMTP.</p>
   </header>
 
   <section>
     <h2>Lo que hace el sistema</h2>
-    <p>Un solo ejecutable atiende cinco comandos. El argumento es obligatorio: sin él imprime el uso y sale con código 64, porque terminar en 0 sin haber mandado un correo se vería igual que una corrida exitosa.</p>
+    <p>Un solo ejecutable atiende cuatro comandos. El argumento es obligatorio: sin él imprime el uso y sale con código 64, porque terminar en 0 sin haber mandado un correo se vería igual que una corrida exitosa.</p>
     <div class="tabla-envoltura">
       <table>
         <thead><tr><th>Comando</th><th>Qué manda</th><th class="num">Agenda</th></tr></thead>
@@ -452,17 +454,26 @@
           <tr><td>--clientes</td><td>Las facturas del día a cada cliente, con XML y PDF adjuntos</td><td class="num">L–V 18:00</td></tr>
           <tr><td>--vendedores</td><td>La cartera sin ingresar a revisión, a cada vendedor</td><td class="num">Mar y vie 09:00</td></tr>
           <tr><td>--cobranza</td><td>El estado de cuenta vencido al contacto de cuentas por pagar</td><td class="num">Mar y vie 09:00</td></tr>
-          <tr><td>--seguimiento</td><td>Nada. Lee el buzón, marca quién contestó y cierra lo vencido</td><td class="num">L–V 10:00</td></tr>
-          <tr><td>--revisar-respuestas</td><td>Nada. Sólo la detección, sin cerrar</td><td class="num">manual</td></tr>
+          <tr><td>--respuestas</td><td>Nada. Lee el buzón y marca en <code>notif.Envio</code> quién contestó y qué rebotó</td><td class="num">L–V 10:00</td></tr>
         </tbody>
       </table>
     </div>
-    <p>La pieza que hay que explicar en la junta es la <b>regla del viernes</b>: el correo de cobranza sale martes y viernes, y el viernes se excluye a quien ya contestó el del martes. A quien no contestó le llega dentro del mismo hilo, como recordatorio. Nunca más de dos correos por semana, y nunca un tercero.</p>
+    <p>La pieza que hay que explicar en la junta son las <b>dos poblaciones</b> de cobranza. El correo sale martes y viernes, pero no son el mismo correo filtrado: son dos consultas distintas que no se traslapan.</p>
+    <div class="tabla-envoltura">
+      <table>
+        <thead><tr><th>Día</th><th>Qué trae la consulta</th><th>Plantilla</th></tr></thead>
+        <tbody>
+          <tr><td class="num">martes</td><td>Facturas vencidas que <b>nunca</b> se han notificado</td><td>primer aviso</td></tr>
+          <tr><td class="num">viernes</td><td>Facturas ya notificadas cuyo envío <b>sigue sin contestar</b></td><td>recordatorio</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>El corte lo hace SQL, cruzando la antigüedad de saldos contra <code>CorreosCXC.notif</code>. Quien contestó el martes no aparece el viernes porque su envío está en <code>CONTESTADO</code>, y ese estado lo pone <code>--respuestas</code>. Máximo dos correos por semana; el recordatorio va como mensaje suelto, no dentro del hilo del martes.</p>
   </section>
 
   <section>
     <h2>Antes de la junta</h2>
-    <p>Quince minutos, el día anterior. Sin esto la demo no puede mostrar la regla del viernes, porque no habría un correo del martes al cual responder.</p>
+    <p>Quince minutos, el día anterior. Sin esto la demo no puede mostrar el recordatorio, porque no habría un correo del martes al cual responder.</p>
 
     <div class="pasos">
       <div class="paso">
@@ -481,7 +492,7 @@
         <div class="cuerpo">
           <h4>Mandar el correo del martes</h4>
           <p>Corre la cobranza como primer aviso. Los correos van todos al buzón de pruebas y quedan registrados en <code>CorreosCXC.notif.Envio</code> con <code>Proceso = COBRANZA</code> e <code>Intento = 1</code>.</p>
-<pre><code>dotnet run -- --cobranza --sin-exclusion</code></pre>
+<pre><code>dotnet run -- --cobranza --primer-aviso</code></pre>
         </div>
       </div>
 
@@ -497,8 +508,8 @@
         <div class="num">D</div>
         <div class="cuerpo">
           <h4>Conciliar</h4>
-          <p>Detecta las respuestas y las marca. Sin este paso la regla del viernes no tiene de dónde saber quién contestó.</p>
-<pre><code>dotnet run -- --revisar-respuestas</code></pre>
+          <p>Detecta las respuestas y las marca <code>CONTESTADO</code>. Sin este paso el viernes le insiste también a quien ya había contestado.</p>
+<pre><code>dotnet run -- --respuestas</code></pre>
         </div>
       </div>
     </div>
@@ -514,7 +525,7 @@
         <div class="cuerpo">
           <h4>El argumento es obligatorio</h4>
 <pre><code>dotnet run</code></pre>
-          <p>Imprime los cinco comandos y sale con <b>código 64</b>.</p>
+          <p>Imprime los cuatro comandos y sale con <b>código 64</b>.</p>
           <p class="decir">Sin argumento no hace nada y lo dice. Si terminara en cero, una corrida mal configurada se vería exactamente igual que una exitosa, y nadie se enteraría hasta que un cliente reclamara.</p>
         </div>
       </div>
@@ -523,7 +534,7 @@
         <div class="num">2</div>
         <div class="cuerpo">
           <h4>Qué se le va a mandar a quién</h4>
-<pre><code>dotnet run -- --cobranza --previsualizar --sin-exclusion</code></pre>
+<pre><code>dotnet run -- --cobranza --previsualizar --primer-aviso</code></pre>
           <p>Lista los clientes con saldo vencido, su contacto de cuentas por pagar y su saldo por moneda. Genera el HTML de cada correo sin abrir el SMTP.</p>
           <p class="decir">Esto sale de la vista de antigüedad de saldos, en vivo. No es una muestra preparada: es la cartera vencida de hoy.</p>
         </div>
@@ -542,11 +553,12 @@
       <div class="paso">
         <div class="num">4</div>
         <div class="cuerpo">
-          <h4>La regla del viernes</h4>
-<pre><code>dotnet run -- --cobranza --previsualizar --con-exclusion</code></pre>
-          <p>El conteo baja. En pantalla sale la línea que lo explica:</p>
-<pre><code>Se excluyeron 3 que ya contestaron esta semana: 17907, 19892, 20145</code></pre>
-          <p class="decir">A quien contestó el martes no se le vuelve a escribir. A quien no contestó le llega otra vez, pero dentro del mismo hilo del martes, no como un correo nuevo.</p>
+          <h4>El correo del viernes</h4>
+<pre><code>dotnet run -- --cobranza --previsualizar --recordatorio</code></pre>
+          <p>Cambia la población y el conteo baja. La primera línea dice cuál corrió:</p>
+<pre><code>Obteniendo cobranza vencida ya notificada y sin contestar...
+Se encontraron 2 clientes con saldo vencido por notificar.</code></pre>
+          <p class="decir">No es el mismo listado filtrado: es otra consulta. Quien contestó el martes no aparece porque su envío quedó en <code>CONTESTADO</code>, y quien nunca se ha notificado tampoco, porque el viernes no manda primeros avisos.</p>
         </div>
       </div>
 
@@ -554,7 +566,7 @@
         <div class="num">5</div>
         <div class="cuerpo">
           <h4>Las dos plantillas, lado a lado</h4>
-          <p>Abre el HTML de un cliente que contestó y el de uno que no. El segundo trae una franja ámbar arriba, la fecha del correo anterior y los días transcurridos.</p>
+          <p>Abre el HTML de un cliente del martes y el de uno del viernes. El segundo trae una franja ámbar arriba que dice, antes de leer nada, que ya hubo un envío sin respuesta.</p>
           <p class="decir">Es el mismo dato con otro tono. El primero informa; el segundo insiste, y cierra pidiendo disculpas por si ya pagaron.</p>
         </div>
       </div>
@@ -563,8 +575,8 @@
         <div class="num">6</div>
         <div class="cuerpo">
           <h4>Cómo sabe quién contestó</h4>
-<pre><code>dotnet run -- --revisar-respuestas
-cat Logs/seguimiento-*.log | tail -20</code></pre>
+<pre><code>dotnet run -- --respuestas
+cat Logs/respuestas-*.log | tail -20</code></pre>
           <p>La bitácora muestra el cruce con el criterio exacto que se usó:</p>
 <pre><code>[001] CONTESTADO | Cliente 19892 - EXPERIENCIAS CREATIVAS M3
       Respondio      : mestelles@litoprocess.com el 18/08/2026 17:14
@@ -581,6 +593,7 @@ cat Logs/seguimiento-*.log | tail -20</code></pre>
       <span><span class="estado ok">verificado</span> ya se comprobó contra datos reales</span>
       <span><span class="estado demo">en la demo</span> se muestra en la junta</span>
       <span><span class="estado falta">pendiente</span> requiere producción o un caso que no se puede provocar</span>
+      <span><span class="estado baja">retirado</span> el comportamiento que describía ya no existe</span>
     </div>
 
     <h3 style="margin-top:8px">Cobranza vencida</h3>
@@ -590,9 +603,11 @@ cat Logs/seguimiento-*.log | tail -20</code></pre>
         <tbody>
           <tr><td>Martes, primer aviso</td><td>Plantilla normal, <code>Intento = 1</code>, registro con <code>Proceso = COBRANZA</code></td><td><span class="estado ok">verificado</span></td></tr>
           <tr><td>Viernes, contestó el martes</td><td>Excluido; no recibe nada. Conteo baja de 40 a 39</td><td><span class="estado ok">verificado</span></td></tr>
-          <tr><td>Viernes, no contestó</td><td>Recordatorio en el hilo del martes, <code>Intento = 2</code>, original pasa a <code>RECORDADO</code></td><td><span class="estado ok">verificado</span></td></tr>
-          <tr><td>Vencido nuevo a media semana</td><td>El viernes recibe primer aviso, no recordatorio</td><td><span class="estado demo">en la demo</span></td></tr>
-          <tr><td>No existe un tercer intento</td><td>El original en <code>RECORDADO</code> deja de aparecer como hilo abierto</td><td><span class="estado ok">verificado</span></td></tr>
+          <tr><td>Viernes, no contestó</td><td>Recordatorio con su propia plantilla, como <b>mensaje suelto</b> y <b>sin dejar registro</b>: no cuelga del hilo del martes, no marca <code>RECORDADO</code> y no agrega renglones a <code>notif.Envio</code></td><td><span class="estado ok">verificado</span></td></tr>
+          <tr class="retirado"><td>Vencido nuevo a media semana</td><td><s>El viernes recibe primer aviso, no recordatorio</s> → hoy <b>no recibe nada</b>: el viernes sólo corre la población del recordatorio. Espera al martes siguiente</td><td><span class="estado baja">retirado</span></td></tr>
+          <tr class="retirado"><td>No existe un tercer intento</td><td><s>El original en <code>RECORDADO</code> deja de aparecer como hilo abierto</s> → ya nadie escribe <code>RECORDADO</code>. El tope sigue siendo dos por semana, pero por construcción de las dos consultas</td><td><span class="estado baja">retirado</span></td></tr>
+          <tr><td>Insistencia entre semanas</td><td>La misma factura vuelve a entrar al recordatorio <b>cada viernes</b> hasta que se pague o su envío pase a <code>CONTESTADO</code></td><td><span class="estado ok">verificado</span></td></tr>
+          <tr><td>Recordatorio repetido</td><td>Correrlo dos veces manda dos correos pero deja <b>un solo</b> renglón en <code>notif.EnvioFactura</code>: el del primer aviso</td><td><span class="estado ok">verificado</span></td></tr>
           <tr><td>Cliente con dos monedas</td><td>Dos totales separados; nunca se suman</td><td><span class="estado ok">verificado</span></td></tr>
           <tr><td>Importe en dólares</td><td>Sufijo <code>USD</code>, formato en-US</td><td><span class="estado ok">verificado</span></td></tr>
           <tr><td>Factura con más de 60 días</td><td>Los días salen en rojo</td><td><span class="estado demo">en la demo</span></td></tr>
@@ -616,8 +631,10 @@ cat Logs/seguimiento-*.log | tail -20</code></pre>
           <tr><td>"Estoy fuera de la oficina"</td><td>Descartado; el envío sigue pendiente</td><td><span class="estado demo">en la demo</span></td></tr>
           <tr><td>Rebote de dirección inexistente</td><td>Envío a <code>FALLIDO</code> con el motivo, para corregir el CRM</td><td><span class="estado falta">pendiente</span></td></tr>
           <tr><td>Correr la conciliación dos veces</td><td>No reprocesa lo ya visto</td><td><span class="estado demo">en la demo</span></td></tr>
+          <tr><td>Contesta el recordatorio</td><td>Casa por <code>In-Reply-To</code> contra <code>RecordatorioMessageId</code> y cierra <b>todos</b> los envíos que ese correo cubría, aunque vengan de semanas distintas</td><td><span class="estado demo">en la demo</span></td></tr>
           <tr><td>Buzón en sólo lectura</td><td>Ningún correo queda marcado como leído</td><td><span class="estado ok">verificado</span></td></tr>
-          <tr><td>Envío que agota su vigencia</td><td>Se cierra en <code>SIN_RESPUESTA</code> a los 7 días</td><td><span class="estado demo">en la demo</span></td></tr>
+          <tr class="retirado"><td>Envío que agota su vigencia</td><td><s>Se cierra en <code>SIN_RESPUESTA</code> a los 7 días</s> → se quitó el cierre por vigencia. Un envío sin contestar queda abierto indefinidamente; sólo <code>DiasVentanaMaxima</code> acota la búsqueda</td><td><span class="estado baja">retirado</span></td></tr>
+          <tr><td>Moroso de más de 30 días contesta</td><td>⚠️ <b>No se detecta.</b> La ventana se mide contra <code>Envio.FechaEnvio</code> —la del primer aviso—, así que un cliente al que se le lleva insistiendo dos meses queda fuera del cruce aunque conteste el recordatorio de ayer</td><td><span class="estado falta">pendiente</span></td></tr>
           <tr><td>Ventana de búsqueda acotada</td><td>Nunca lee más de 30 días atrás, aunque algo quede abierto</td><td><span class="estado ok">verificado</span></td></tr>
         </tbody>
       </table>
@@ -664,9 +681,13 @@ cat Logs/seguimiento-*.log | tail -20</code></pre>
     </div>
 
     <div class="aviso medio">
-      <div class="titulo">La regla del viernes se degrada en silencio <span class="sev medio">vigilar</span></div>
-      <p>Depende de tres eslabones en lugares distintos: el registro del martes, la conciliación de en medio, y la exclusión del viernes. Si el de en medio deja de correr —se comenta la línea del crontab, IMAP deja de autenticar—, <b>el viernes no falla</b>: manda el correo a todos, incluidos los que ya habían respondido. No hay error, sólo un cliente molesto.</p>
-      <p>La señal está en el encabezado de la bitácora de cobranza. Un <code>Exclusion : NO</code> en un viernes significa que la cadena se rompió.</p>
+      <div class="titulo">El recordatorio se degrada en silencio <span class="sev medio">vigilar</span></div>
+      <p>Depende de tres eslabones en lugares distintos: el registro del martes, <code>--respuestas</code> de en medio, y el recordatorio del viernes. Si el de en medio deja de correr —se comenta la línea del crontab, IMAP deja de autenticar—, <b>el viernes no falla</b>: le insiste también a quien ya había respondido. No hay error, sólo un cliente molesto.</p>
+<pre><code>martes 09:00   --cobranza     registra el envío y sus facturas
+mié/jue 10:00  --respuestas   marca CONTESTADO a quien respondió
+viernes 09:00  --cobranza     insiste sobre lo que no está CONTESTADO</code></pre>
+      <p>La señal está en la bitácora de respuestas. Un <code>Marcados CONTESTADO : 0</code> varios días seguidos significa que la cadena se rompió.</p>
+      <p>Ahora pesa más que antes: al quitarse el cierre por vigencia, <b>nada cierra solo</b> un envío que nadie contesta. Se queda abierto, y la misma factura vuelve al recordatorio cada viernes hasta que se pague.</p>
     </div>
   </section>
 
@@ -688,9 +709,9 @@ cat Logs/seguimiento-*.log | tail -20</code></pre>
       <table>
         <thead><tr><th>#</th><th>Criterio</th></tr></thead>
         <tbody>
-          <tr><td>1</td><td>Ningún cliente recibe dos correos de cobranza en una semana si contestó el primero.</td></tr>
+          <tr><td>1</td><td>Ningún cliente recibe dos correos de cobranza en una semana si contestó el primero — <b>siempre que <code>--respuestas</code> haya corrido entre medias</b>.</td></tr>
           <tr><td>2</td><td>Ningún cliente recibe más de dos correos de cobranza por semana, haya contestado o no.</td></tr>
-          <tr><td>3</td><td>El recordatorio llega dentro del hilo del correo original, no como mensaje suelto.</td></tr>
+          <tr><td>3</td><td>El recordatorio se distingue del primer aviso por plantilla y asunto. <i>(Ya no cuelga del hilo del martes: se quitaron <code>In-Reply-To</code> y <code>References</code>.)</i></td></tr>
           <tr><td>4</td><td>Una autorrespuesta automática no cuenta como acuse.</td></tr>
           <tr><td>5</td><td>Toda corrida deja bitácora en disco, incluso si falla, y registra en qué modo corrió.</td></tr>
           <tr><td>6</td><td>Una factura ya notificada no vuelve a abrir un envío.</td></tr>
@@ -700,6 +721,6 @@ cat Logs/seguimiento-*.log | tail -20</code></pre>
     </div>
   </section>
 
-  <p class="pie">notificacion-clientes · plan de pruebas · 18 de agosto de 2026<br>Documento hermano del plan de acuse y recordatorio. Todos los casos marcados "verificado" se comprobaron contra la base y el buzón reales.</p>
+  <p class="pie">notificacion-clientes · plan de pruebas · 18 de agosto de 2026<br>Documento hermano del plan de acuse y recordatorio. Actualizado el 20 de agosto de 2026, cuando la cobranza pasó a dos consultas y se retiró el cierre por vigencia; los casos marcados "retirado" describen comportamiento que ya no existe.</p>
 
 </div>

@@ -82,6 +82,72 @@ IF NOT EXISTS (SELECT 1 FROM sys.check_constraints
 GO
 
 /*
+    Los recordatorios que ha recibido cada envio.
+
+    El recordatorio NO genera renglon en Envio: si lo hiciera, cada viernes agregaria otro MovID
+    repetido a EnvioFactura y el estado del cliente quedaria partido entre varios envios. Pero sin
+    guardar nada, su Message-Id se pierde y la respuesta del cliente no casa con nada.
+
+    Se guarda aqui, y en una tabla y no en una columna de Envio a proposito: una columna sola
+    retiene unicamente el ultimo recordatorio, y un cliente que arrastra el correo viejo en su
+    bandeja y contesta ahi quedaria sin detectar. Cada renglon es "a este envio lo cubrio este
+    recordatorio", y se conservan todos.
+
+    Un mismo recordatorio puede abarcar facturas de semanas distintas —y por tanto varios envios—:
+    todos comparten MessageId, asi que una sola respuesta los cierra de golpe.
+*/
+IF OBJECT_ID('notif.EnvioRecordatorio') IS NULL
+CREATE TABLE notif.EnvioRecordatorio (
+    IdEnvio    INT          NOT NULL REFERENCES notif.Envio(IdEnvio),
+    -- Sin <>, igual que Envio.MessageId: es la llave del cruce contra el buzon.
+    MessageId  VARCHAR(255) NOT NULL,
+    -- Cuando salio ese recordatorio. Es lo unico que sabe que tan reciente es el contacto con
+    -- el cliente, porque Envio.FechaEnvio se queda con la fecha del primer aviso.
+    FechaEnvio DATETIME2(0) NOT NULL,
+    CONSTRAINT PK_notif_EnvioRecordatorio PRIMARY KEY (IdEnvio, MessageId)
+);
+GO
+
+/*
+    La conciliacion busca por MessageId para cerrar el grupo entero. Sin indice es un scan por
+    cada respuesta detectada.
+*/
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_notif_EnvioRecordatorio_MessageId'
+                                       AND object_id = OBJECT_ID('notif.EnvioRecordatorio'))
+    DROP INDEX IX_notif_EnvioRecordatorio_MessageId ON notif.EnvioRecordatorio;
+GO
+
+CREATE INDEX IX_notif_EnvioRecordatorio_MessageId ON notif.EnvioRecordatorio (MessageId)
+    INCLUDE (IdEnvio, FechaEnvio);
+GO
+
+/*
+    Migracion desde la version anterior, que guardaba el ultimo recordatorio en una columna de
+    Envio. Se copia lo que haya antes de tirar la columna, para no perder los sellos ya puestos.
+
+    La fecha exacta de aquel recordatorio no se guardaba, asi que se aproxima con la del envio.
+    Es lo peor que puede pasar: un sello viejo con fecha conservadora.
+*/
+IF COL_LENGTH('notif.Envio', 'RecordatorioMessageId') IS NOT NULL
+    EXEC('
+        INSERT INTO notif.EnvioRecordatorio (IdEnvio, MessageId, FechaEnvio)
+        SELECT e.IdEnvio, e.RecordatorioMessageId, e.FechaEnvio
+        FROM notif.Envio e
+        WHERE e.RecordatorioMessageId IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM notif.EnvioRecordatorio r
+                          WHERE r.IdEnvio = e.IdEnvio AND r.MessageId = e.RecordatorioMessageId);');
+GO
+
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_notif_Envio_RecordatorioMessageId'
+                                       AND object_id = OBJECT_ID('notif.Envio'))
+    DROP INDEX IX_notif_Envio_RecordatorioMessageId ON notif.Envio;
+GO
+
+IF COL_LENGTH('notif.Envio', 'RecordatorioMessageId') IS NOT NULL
+    ALTER TABLE notif.Envio DROP COLUMN RecordatorioMessageId;
+GO
+
+/*
     Cubre la consulta de pendientes, que es la que corre todos los dias.
 
     Se recrea en vez de crearse solo si falta: un IF NOT EXISTS deja el indice viejo intacto

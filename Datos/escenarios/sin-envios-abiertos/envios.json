@@ -1,0 +1,29 @@
+[
+  {
+    "IdEnvio": 1,
+    "Cliente": "2006",
+    "RazonSocial": "Plasticos del Noroeste SA de CV",
+    "Proceso": "Cobranza",
+    "MessageId": "78afd2c1-0d0b-5b8e-b19d-14ab3635a446@litoprocess.com",
+    "Token": "4be2fac9-d3c7-50d7-aa40-e4a676461eb2",
+    "IdEnvioOriginal": null,
+    "Intento": 1,
+    "Asunto": "Estado de cuenta con saldo vencido - Plasticos del Noroeste SA de CV",
+    "Destinatarios": "tonovarelaq@gmail.com",
+    "ModoPrueba": false,
+    "FechaEnvio": "2026-08-17T09:00:44-06:00",
+    "Estado": "Contestado",
+    "Error": null,
+    "FechaRespuesta": null,
+    "RespondioEmail": null,
+    "RespuestaMessageId": null,
+    "RespuestaAsunto": null,
+    "Facturas": [
+      {
+        "MovID": "CFDI-201100",
+        "Total": 6400.0,
+        "Moneda": "MXN"
+      }
+    ]
+  }
+]

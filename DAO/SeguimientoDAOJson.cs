@@ -9,6 +9,10 @@ namespace notificacion_clientes.DAO
     /// archivo JSON en vez de CorreosCXC.notif. Pensada para desarrollar/probar por VPN, donde
     /// el servidor de base de datos es lento o no está disponible.
     ///
+    /// Igual que la de SQL, casi sólo escribe: a quién le toca el recordatorio de cobranza lo
+    /// decide la consulta de facturas, no este archivo. Lo único que se lee de aquí son los envíos
+    /// que siguen esperando respuesta, para cruzarlos contra el buzón.
+    ///
     /// Lee y reescribe <paramref name="rutaArchivo"/> completo en cada operación: para el volumen
     /// de datos de prueba (decenas de envíos) es más simple que llevar un índice, y deja el
     /// archivo abierto para inspeccionarlo a mano entre corridas.
@@ -55,6 +59,7 @@ namespace notificacion_clientes.DAO
                 RespondioEmail = envio.RespondioEmail,
                 RespuestaMessageId = envio.RespuestaMessageId,
                 RespuestaAsunto = envio.RespuestaAsunto,
+                RecordatorioMessageIds = envio.RecordatorioMessageIds,
                 Facturas = envio.Facturas
             });
 
@@ -63,7 +68,7 @@ namespace notificacion_clientes.DAO
             return idEnvio;
         }
 
-        public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerParaConciliar(DateTime desde)
+        public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerEnviosSinRespuesta(DateTime desde)
         {
             var envios = await Leer();
 
@@ -74,71 +79,59 @@ namespace notificacion_clientes.DAO
                 .ToList();
         }
 
-        public async Task<DateTime?> ObtenerFechaPendienteMasAntiguo()
+        /// <summary>
+        /// Estampa el Message-Id del recordatorio sobre los envíos abiertos que llevaban esas
+        /// facturas. Se acota por MovID y no por cliente: si una factura ya se pagó, su envío no
+        /// entró en el recordatorio y no debe cerrarse con la respuesta a éste.
+        /// </summary>
+        public async Task<int> MarcarRecordatorioEnviado(
+            IReadOnlyList<string> movIds,
+            string messageId,
+            DateTime fechaEnvio)
         {
-            var envios = await Leer();
+            if (movIds.Count == 0)
+                return 0;
 
-            var pendientes = envios
-                .Where(e => e.Estado == EstadoEnvio.Enviado || e.Estado == EstadoEnvio.Recordado)
+            var buscados = movIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var envios = await Leer();
+            var marcados = 0;
+
+            envios = envios
+                .Select(e =>
+                {
+                    if (e.Estado == EstadoEnvio.Contestado || !e.Facturas.Any(f => buscados.Contains(f.MovID)))
+                        return e;
+
+                    // Se acumula, no se pisa: el cliente puede contestar un recordatorio viejo.
+                    // Repetir la corrida del mismo día no debe duplicar el mismo id.
+                    if (e.RecordatorioMessageIds.Contains(messageId, StringComparer.OrdinalIgnoreCase))
+                        return e;
+
+                    marcados++;
+                    return Clonar(e, recordatorioMessageIds: e.RecordatorioMessageIds.Append(messageId).ToList());
+                })
                 .ToList();
 
-            return pendientes.Count == 0 ? null : pendientes.Min(e => e.FechaEnvio);
-        }
+            await Guardar(envios);
 
-        public async Task<Dictionary<string, EnvioNotificacion>> ObtenerCobranzaAbiertaDeLaSemana(
-            DateTime desde,
-            bool modoPrueba)
-        {
-            var envios = await Leer();
-
-            var porCliente = new Dictionary<string, EnvioNotificacion>(StringComparer.OrdinalIgnoreCase);
-
-            var candidatos = envios
-                .Where(e => e.Proceso == ProcesoEnvio.Cobranza
-                            && e.Estado == EstadoEnvio.Enviado
-                            && e.Intento == 1
-                            && e.ModoPrueba == modoPrueba
-                            && e.FechaEnvio >= desde)
-                .OrderBy(e => e.FechaEnvio);
-
-            foreach (var envio in candidatos)
-                porCliente[envio.Cliente] = envio;
-
-            return porCliente;
-        }
-
-        public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerPendientesDeCierre(DateTime fechaCorte)
-        {
-            var envios = await Leer();
-
-            return envios
-                .Where(e => e.Proceso == ProcesoEnvio.Cobranza
-                            && (e.Estado == EstadoEnvio.Enviado || e.Estado == EstadoEnvio.Recordado)
-                            && e.FechaEnvio < fechaCorte)
-                .OrderBy(e => e.FechaEnvio)
-                .ToList();
-        }
-
-        public async Task<HashSet<string>> ObtenerClientesQueContestaronCobranza(DateTime desde, bool modoPrueba)
-        {
-            var envios = await Leer();
-
-            var clientes = envios
-                .Where(e => e.Proceso == ProcesoEnvio.Cobranza
-                            && e.Estado == EstadoEnvio.Contestado
-                            && e.ModoPrueba == modoPrueba
-                            && e.FechaEnvio >= desde)
-                .Select(e => e.Cliente);
-
-            return new HashSet<string>(clientes, StringComparer.OrdinalIgnoreCase);
+            return marcados;
         }
 
         public async Task MarcarContestado(RespuestaDetectada respuesta)
         {
             var envios = await Leer();
 
+            // Si contestó un recordatorio, se cierran todos los envíos que aquel correo cubría:
+            // el cliente respondió a un mensaje que le reclamaba varias facturas, no una.
+            bool Alcanza(EnvioNotificacion e) =>
+                e.IdEnvio == respuesta.Envio.IdEnvio
+                || e.IdEnvio == respuesta.Envio.IdEnvioOriginal
+                || (respuesta.RespondioARecordatorio is { } id
+                    && e.Estado != EstadoEnvio.Contestado
+                    && e.RecordatorioMessageIds.Contains(id, StringComparer.OrdinalIgnoreCase));
+
             envios = envios
-                .Select(e => e.IdEnvio == respuesta.Envio.IdEnvio || e.IdEnvio == respuesta.Envio.IdEnvioOriginal
+                .Select(e => Alcanza(e)
                     ? Clonar(e, estado: EstadoEnvio.Contestado, fechaRespuesta: respuesta.Fecha,
                         respondioEmail: respuesta.DeEmail, respuestaMessageId: respuesta.MessageId,
                         respuestaAsunto: Recortar(respuesta.Asunto, 500))
@@ -194,7 +187,8 @@ namespace notificacion_clientes.DAO
             DateTime? fechaRespuesta = null,
             string? respondioEmail = null,
             string? respuestaMessageId = null,
-            string? respuestaAsunto = null) =>
+            string? respuestaAsunto = null,
+            IReadOnlyList<string>? recordatorioMessageIds = null) =>
             new()
             {
                 IdEnvio = origen.IdEnvio,
@@ -215,6 +209,7 @@ namespace notificacion_clientes.DAO
                 RespondioEmail = respondioEmail ?? origen.RespondioEmail,
                 RespuestaMessageId = respuestaMessageId ?? origen.RespuestaMessageId,
                 RespuestaAsunto = respuestaAsunto ?? origen.RespuestaAsunto,
+                RecordatorioMessageIds = recordatorioMessageIds ?? origen.RecordatorioMessageIds,
                 Facturas = origen.Facturas
             };
 

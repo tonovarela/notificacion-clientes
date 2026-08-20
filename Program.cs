@@ -50,27 +50,20 @@ namespace notificacion_clientes
             // Martes y viernes, 09:00. El viernes excluye a quien contestó el correo del martes.
             if (args.Contains("--cobranza"))
             {
-                // Las banderas fuerzan la regla en una corrida manual; sin ellas manda el día.
-                bool? exclusion = args.Contains("--con-exclusion") ? true
-                                : args.Contains("--sin-exclusion") ? false
-                                : null;
+                // Las banderas fuerzan la población en una corrida manual; sin ellas manda el día.
+                bool? recordatorio = args.Contains("--recordatorio") ? true
+                                   : args.Contains("--primer-aviso") ? false
+                                   : null;
 
-                await new ComandoCobranza(dep).Ejecutar(inicio, previsualizar, exclusion);
+                await new ComandoCobranza(dep).Ejecutar(inicio, previsualizar, recordatorio);
                 ejecutado = true;
             }
 
-            // Lunes a viernes, 10:00. Detecta quién contestó y cierra lo que agotó su vigencia.
-            // Es lo que alimenta la regla del viernes de cobranza; no manda ningún correo.
-            if (args.Contains("--seguimiento"))
+            // Lunes a viernes, 10:00. Lee el buzón y marca quién contestó; no manda ningún correo.
+            // Es lo que hace que el recordatorio de cobranza deje de insistirle a quien ya respondió.
+            if (args.Contains("--respuestas"))
             {
-                await new ComandoSeguimiento(dep).Ejecutar(inicio, cerrarVencidos: true);
-                ejecutado = true;
-            }
-
-            // Sólo la conciliación, sin cerrar nada. Para correr a mano y ver qué detecta.
-            if (args.Contains("--revisar-respuestas"))
-            {
-                await new ComandoSeguimiento(dep).Ejecutar(inicio, cerrarVencidos: false);
+                await new ComandoRespuestas(dep).Ejecutar(inicio);
                 ejecutado = true;
             }
 
@@ -95,14 +88,13 @@ namespace notificacion_clientes
             Console.WriteLine("  --clientes             Facturas del día a cada cliente");
             Console.WriteLine("  --vendedores           Cartera sin ingresar a revisión, a cada vendedor");
             Console.WriteLine("  --cobranza             Estado de cuenta vencido a cada cliente");
-            Console.WriteLine("  --seguimiento          Detecta acuses y cierra lo que agotó su vigencia");
-            Console.WriteLine("  --revisar-respuestas   Sólo la detección, sin cerrar nada");
+            Console.WriteLine("  --respuestas           Lee el buzón y marca en notif.Envio quién contestó");
             Console.WriteLine();
             Console.WriteLine("  --previsualizar        Genera el HTML en disco sin enviar correos");
             Console.WriteLine();
-            Console.WriteLine("  Sólo para --cobranza, la regla del viernes se puede forzar:");
-            Console.WriteLine("  --con-exclusion        Omite a quien ya contestó esta semana");
-            Console.WriteLine("  --sin-exclusion        Notifica a todos, hayan contestado o no");
+            Console.WriteLine("  Sólo para --cobranza, la población se puede forzar:");
+            Console.WriteLine("  --recordatorio         Insiste sobre lo ya notificado sin respuesta");
+            Console.WriteLine("  --primer-aviso         Sólo facturas que nunca se han notificado");
         }
     }
 }

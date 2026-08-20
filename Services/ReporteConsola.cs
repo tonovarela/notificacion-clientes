@@ -78,9 +78,6 @@ namespace notificacion_clientes.Services
         {
             Console.WriteLine($"Se encontraron {cobranza.Notificaciones.Count} clientes con saldo vencido por notificar.");
 
-            if (cobranza.ExcluidosPorRespuesta.Count > 0)
-                Console.WriteLine($"Se excluyeron {cobranza.ExcluidosPorRespuesta.Count} que ya contestaron esta semana: " +
-                                  string.Join(", ", cobranza.ExcluidosPorRespuesta.Select(n => n.Cliente)));
 
             foreach (var notificacion in cobranza.Notificaciones)
             {
@@ -96,11 +93,11 @@ namespace notificacion_clientes.Services
 
         }
 
-        /// <summary>Lo que se ve en pantalla al correr el seguimiento.</summary>
-        public void ImprimirSeguimiento(ResultadoSeguimiento resultado)
+        /// <summary>Lo que se ve en pantalla al leer las respuestas del buzón.</summary>
+        public void ImprimirRespuestas(ResultadoRespuestas resultado)
         {
             Console.WriteLine();
-            Console.WriteLine($"Envíos revisados contra el buzón: {resultado.Conciliados}");
+            Console.WriteLine($"Envíos revisados contra el buzón: {resultado.Revisados}");
             Console.WriteLine($"Acuses detectados: {resultado.Respuestas.Count} | Rebotes: {resultado.Rebotes.Count}");
 
             foreach (var respuesta in resultado.Respuestas)
@@ -109,15 +106,6 @@ namespace notificacion_clientes.Services
 
             foreach (var rebote in resultado.Rebotes)
                 Console.WriteLine($"  REBOTE {rebote.Envio.Cliente}: {rebote.Envio.Destinatarios} — corregir en el CRM");
-
-            if (resultado.Cerrados.Count > 0)
-            {
-                Console.WriteLine();
-                Console.WriteLine($"Cobranza cerrada sin respuesta ({resultado.Cerrados.Count}):");
-
-                foreach (var envio in resultado.Cerrados)
-                    Console.WriteLine($"  {envio.Cliente} - {envio.RazonSocial} | enviado el {envio.FechaEnvio:dd/MM/yyyy}");
-            }
         }
 
         private static string Describir(ArchivoFactura? archivo) =>

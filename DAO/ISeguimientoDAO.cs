@@ -3,23 +3,34 @@ using notificacion_clientes.Entity;
 namespace notificacion_clientes.DAO
 {
     /// <summary>
-    /// Seguimiento de envíos: qué se mandó, quién contestó y a quién toca insistirle.
+    /// Registro de envíos: qué se mandó y en qué acabó.
     /// Implementada por <see cref="SeguimientoDAO"/> (SQL Server) y por
     /// <see cref="SeguimientoDAOJson"/> (archivo en Datos/, para probar sin depender de la VPN/DB).
+    ///
+    /// Aquí ya no se decide a quién le toca el recordatorio de cobranza. Esa pregunta la contesta
+    /// la consulta <see cref="IFacturaDAO.ObtenerFacturasCobranzaVencidaSinContestar"/>, que cruza
+    /// la antigüedad de saldos contra lo ya notificado dentro del mismo SELECT.
+    ///
+    /// Queda una sola lectura, <see cref="ObtenerEnviosSinRespuesta"/>: para casar un correo del
+    /// buzón con el envío que lo provocó hay que tener a la mano los Message-Id que mandamos, y
+    /// eso no se puede resolver desde la consulta de facturas.
     /// </summary>
     public interface ISeguimientoDAO
     {
         Task<int> Registrar(EnvioNotificacion envio);
 
-        Task<IReadOnlyList<EnvioNotificacion>> ObtenerParaConciliar(DateTime desde);
+        /// <summary>
+        /// Envíos que todavía esperan respuesta, para cruzarlos contra el buzón.
+        /// <paramref name="desde"/> acota cuánto hacia atrás se mira.
+        /// </summary>
+        Task<IReadOnlyList<EnvioNotificacion>> ObtenerEnviosSinRespuesta(DateTime desde);
 
-        Task<DateTime?> ObtenerFechaPendienteMasAntiguo();
-
-        Task<Dictionary<string, EnvioNotificacion>> ObtenerCobranzaAbiertaDeLaSemana(DateTime desde, bool modoPrueba);
-
-        Task<IReadOnlyList<EnvioNotificacion>> ObtenerPendientesDeCierre(DateTime fechaCorte);
-
-        Task<HashSet<string>> ObtenerClientesQueContestaronCobranza(DateTime desde, bool modoPrueba);
+        /// <summary>
+        /// Estampa el Message-Id de un recordatorio sobre los envíos abiertos que cubrían esas
+        /// facturas. Es lo que permite reconocer después una respuesta a ese correo, que no tiene
+        /// renglón propio. Devuelve cuántos envíos quedaron marcados.
+        /// </summary>
+        Task<int> MarcarRecordatorioEnviado(IReadOnlyList<string> movIds, string messageId, DateTime fechaEnvio);
 
         Task MarcarContestado(RespuestaDetectada respuesta);
 

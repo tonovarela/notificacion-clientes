@@ -4,20 +4,9 @@ using System.Collections.Generic;
 namespace notificacion_clientes.Entity
 {
     /// <summary>
-    /// En qué punto del ciclo está un correo que ya salió.
-    ///
-    ///   ENVIADO ──(N días)──┬── CONTESTADO
-    ///                       └── RECORDADO ──(N días)──┬── CONTESTADO
-    ///                                                 └── SIN_RESPUESTA
-    ///
-    /// FALLIDO queda fuera del ciclo: el correo nunca salió del SMTP, así que no hay nada
-    /// que esperar ni a quién insistirle. Eso se atiende a mano con la bitácora del día.
-    /// </summary>
-    /// <summary>
-    /// Qué proceso generó el envío. Vive en la tabla porque los dos comparten buzón y ciclo de
-    /// respuestas, pero no comparten política: sólo CLIENTES tiene recordatorio automático, y
-    /// COBRANZA usa las respuestas para lo contrario —excluir del correo del viernes a quien ya
-    /// contestó el del martes—.
+    /// Qué proceso generó el envío. Vive en la tabla porque los dos comparten buzón, pero no
+    /// comparten política: sólo COBRANZA vuelve a leer estos renglones, y lo hace desde la
+    /// consulta de facturas para saber qué ya se notificó y sigue sin respuesta.
     /// </summary>
     public enum ProcesoEnvio
     {
@@ -28,6 +17,15 @@ namespace notificacion_clientes.Entity
         Cobranza
     }
 
+    /// <summary>
+    /// En qué acabó un correo que ya salió.
+    ///
+    /// Sólo ENVIADO y FALLIDO los escribe la aplicación sola, al registrar la corrida. Los otros
+    /// tres exigen que alguien más los ponga: desde que se quitó la conciliación por IMAP no hay
+    /// proceso que lea el buzón, así que un envío se queda en ENVIADO hasta que se actualice a
+    /// mano o desde otro sistema. Eso importa porque el recordatorio de cobranza descarta lo que
+    /// esté en CONTESTADO: mientras nadie lo marque, se sigue insistiendo.
+    /// </summary>
     public enum EstadoEnvio
     {
         Enviado,
@@ -39,7 +37,8 @@ namespace notificacion_clientes.Entity
 
     /// <summary>
     /// Un renglón de CorreosCXC.notif.Envio: un correo que salió y lo que se sabe de su respuesta.
-    /// El recordatorio es un renglón aparte, ligado al original por IdEnvioOriginal.
+    /// Sólo el primer aviso llega aquí: el recordatorio no se registra, así que una factura tiene
+    /// a lo más un renglón por más veces que se le insista.
     /// </summary>
     public class EnvioNotificacion
     {
@@ -58,10 +57,17 @@ namespace notificacion_clientes.Entity
         /// <summary>Viaja como header X-Notificacion-Id. Es el id que sí controlamos nosotros.</summary>
         public required Guid Token { get; init; }
 
-        /// <summary>NULL en un envío original; en un recordatorio, el envío al que responde.</summary>
+        /// <summary>
+        /// El envío al que responde. Hoy siempre NULL: para ligarlos había que recuperar el envío
+        /// del martes desde el seguimiento, y esa consulta desapareció junto con la conciliación.
+        /// La columna se conserva porque los renglones viejos sí la traen.
+        /// </summary>
         public int? IdEnvioOriginal { get; init; }
 
-        /// <summary>1 = original, 2 = recordatorio. No existe un 3 por construcción de la consulta.</summary>
+        /// <summary>
+        /// Siempre 1 hoy: el recordatorio dejó de registrarse, así que no se escribe ningún 2.
+        /// La columna se conserva porque los renglones viejos sí lo traen.
+        /// </summary>
         public byte Intento { get; init; } = 1;
 
         public required string Asunto { get; init; }
@@ -69,7 +75,7 @@ namespace notificacion_clientes.Entity
         /// <summary>A quién se le mandó de verdad; en modo prueba es el buzón de pruebas.</summary>
         public required string Destinatarios { get; init; }
 
-        /// <summary>True si la corrida fue de prueba. Estos envíos nunca generan recordatorio.</summary>
+        /// <summary>True si la corrida fue de prueba.</summary>
         public required bool ModoPrueba { get; init; }
 
         public required DateTime FechaEnvio { get; init; }
@@ -86,14 +92,28 @@ namespace notificacion_clientes.Entity
 
         public string? RespuestaAsunto { get; init; }
 
-        /// <summary>Las facturas que iban en ese correo. Sólo se llena cuando hace falta reenviarlas.</summary>
-        public IReadOnlyList<FacturaEnviada> Facturas { get; init; } = Array.Empty<FacturaEnviada>();
+        /// <summary>
+        /// Los Message-Id de TODOS los recordatorios que han cubierto a este envío, del más viejo
+        /// al más reciente. Vacío si nunca se le ha insistido.
+        ///
+        /// El recordatorio no genera renglón propio —duplicaría MovIDs en EnvioFactura y partiría
+        /// el estado del cliente entre varios envíos—, así que su identidad se guarda aquí. Se
+        /// conservan todos y no sólo el último: un cliente que arrastra el correo viejo en su
+        /// bandeja y contesta ahí quedaría sin detectar si sólo se recordara el más reciente.
+        ///
+        /// Un mismo recordatorio puede abarcar facturas de semanas distintas, y por tanto varios
+        /// envíos: todos comparten ese id, así que una sola respuesta los cierra de golpe.
+        /// </summary>
+        public IReadOnlyList<string> RecordatorioMessageIds { get; init; } = Array.Empty<string>();
 
-        /// <summary>Días naturales transcurridos desde que salió el correo.</summary>
-        public int DiasTranscurridos(DateTime ahora) => (int)(ahora.Date - FechaEnvio.Date).TotalDays;
+        /// <summary>
+        /// Las facturas que iban en ese correo. Es lo que hace posible el recordatorio: la consulta
+        /// de cobranza sin contestar cruza contra estos renglones para saber qué ya se reclamó.
+        /// </summary>
+        public IReadOnlyList<FacturaEnviada> Facturas { get; init; } = Array.Empty<FacturaEnviada>();
     }
 
-    /// <summary>Una factura que viajó en un envío. Permite rearmar los mismos adjuntos al recordar.</summary>
+    /// <summary>Una factura que viajó en un envío.</summary>
     public class FacturaEnviada
     {
         public required string MovID { get; init; }
@@ -133,6 +153,13 @@ namespace notificacion_clientes.Entity
         public required string MessageId { get; init; }
 
         public required CriterioCruce Criterio { get; init; }
+
+        /// <summary>
+        /// Cuando la respuesta casó contra el Message-Id de un recordatorio y no contra el del
+        /// envío original. Trae ese id, y es la señal de que hay que cerrar todos los envíos que
+        /// aquel recordatorio cubría, no sólo el que casó.
+        /// </summary>
+        public string? RespondioARecordatorio { get; init; }
 
         /// <summary>
         /// True cuando el correo es un rebote (mailer-daemon / postmaster). No es una respuesta:

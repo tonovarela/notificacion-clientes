@@ -53,7 +53,7 @@ namespace notificacion_clientes.Comandos
             Reporte = new ReporteConsola();
 
             Respuesta = new RespuestaService(settings.Imap);
-            CobranzaVencida = new CobranzaVencidaService(facturaDAO, SeguimientoDAO);
+            CobranzaVencida = new CobranzaVencidaService(facturaDAO);
         }
 
         public AppSettings Settings { get; }

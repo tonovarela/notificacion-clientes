@@ -32,10 +32,10 @@ namespace notificacion_clientes.Configuracion
         /// <summary>Directorio donde queda la bitácora de cada ejecución.</summary>
         public required string RutaBitacora { get; init; }
 
-        /// <summary>Lectura del buzón para detectar respuestas de los clientes.</summary>
+        /// <summary>Política de acuse y recordatorio.</summary>
+        /// <summary>Lectura del buzón para detectar quién contestó.</summary>
         public required ImapSettings Imap { get; init; }
 
-        /// <summary>Política de acuse y recordatorio.</summary>
         public required SeguimientoSettings Seguimiento { get; init; }
 
         /// <summary>
@@ -83,6 +83,7 @@ namespace notificacion_clientes.Configuracion
                     : 60,
 
                 Smtp = smtp,
+
 
                 Imap = ImapSettings.Cargar(configuracion, smtp),
 

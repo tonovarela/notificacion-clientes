@@ -22,13 +22,13 @@ namespace notificacion_clientes.DAO
         //                     from lito.dbo.venta v
         //                     left join ( 
         //                     select c.razonsocial, c.nombreagente, ctos.Tratamiento, ctos.Nombre,  ctos.cargo, ctos.email, ctos.Telefonos, c.ClienteINT
-		// 	                from LITOCRM.dbo.v_catclientes c
-		// 			            left join (select Tratamiento, nombre, cargo, Departamento, Telefonos, email, idClienteINT
-		// 						FROM [LitoCRM].[dbo].[v_catContactos] where cfd_enviar = 1 and activo = 1) ctos on ctos.idClienteINT =  c.ClienteINT) x on x.ClienteINT = v.Cliente
+        // 	                from LITOCRM.dbo.v_catclientes c
+        // 			            left join (select Tratamiento, nombre, cargo, Departamento, Telefonos, email, idClienteINT
+        // 						FROM [LitoCRM].[dbo].[v_catContactos] where cfd_enviar = 1 and activo = 1) ctos on ctos.idClienteINT =  c.ClienteINT) x on x.ClienteINT = v.Cliente
         //                         where mov = 'Factura Electronica' and estatus = 'concluido'
         //                             and cliente in (select clienteint from litocrm.dbo.v_catClientes where idMetodoRevision = 4 and estatus = 'alta' and diasrevision is not null )
         //                     and fechaEmision = convert(date,getdate())";
-      
+
 
         public FacturaDAO(string sqlConexion)
         {
@@ -48,7 +48,7 @@ namespace notificacion_clientes.DAO
         public async Task<IEnumerable<Factura>> Obtener(int diasAtras = 0)
         {
             Console.WriteLine($"Obteniendo facturas de los últimos {diasAtras} días...");
-            string sql= @"SELECT
+            string sql = @"SELECT
                                             v.Cliente,
                                             c.RazonSocial,
                                             v.Importe,
@@ -104,7 +104,7 @@ namespace notificacion_clientes.DAO
             using var conexion = new SqlConnection(_sqlConexion);
             return await conexion.QueryAsync<FacturaRevisionVendedor>(sql);
         }
-    
+
 
 
         /// <summary>
@@ -122,10 +122,21 @@ namespace notificacion_clientes.DAO
         /// </summary>
         public async Task<IEnumerable<FacturaCobranzaVencida>> ObtenerFacturasCobranzaVencida()
         {
-            string sql = @"SELECT
+            string sql = @"
+            WITH FacturasNotificaficadas
+                AS
+                (
+                SELECT
+                ev.MovId 
+                FROM CorreosCXC.notif.EnvioFactura ev
+                JOIN CorreosCXC.notif.Envio e ON e.IdEnvio=ev.IdEnvio
+                )
+ SELECT
+
                                 v.Cliente,
                                 v.Nombre                            AS RazonSocial,
                                 Factura = v.Mov + ' ' + v.MovID,
+                                v.MovID,
                                 v.FechaEmision,
                                 v.Condicion,
                                 v.Vencimiento,
@@ -137,20 +148,79 @@ namespace notificacion_clientes.DAO
                                 x.Cargo,
                                 x.Email
                             FROM etl_mstr.dbo.v_AntiguedadCxC v
-                                LEFT JOIN (SELECT c.RazonSocial, c.NombreAgente, ctos.Tratamiento, ctos.Nombre,
+                            LEFT JOIN (SELECT c.RazonSocial, c.NombreAgente, ctos.Tratamiento, ctos.Nombre,
                                                   ctos.Cargo, ctos.Email, ctos.Telefonos, c.ClienteINT
                                            FROM litocrm.dbo.v_catClientes c
                                                LEFT JOIN (SELECT Tratamiento, Nombre, Cargo, Departamento, Telefonos, Email, idClienteINT
                                                           FROM LitoCRM.dbo.v_catContactos
                                                           WHERE contactoCXP = 1 AND activo = 1) ctos
-                                                   ON ctos.idClienteINT = c.ClienteINT) x
-                                    ON x.ClienteINT = v.Cliente
+                                                   ON ctos.idClienteINT = c.ClienteINT) x ON x.ClienteINT = v.Cliente
+                                LEFT JOIN FacturasNotificaficadas fn ON fn.MovId = v.MovID                   
                             WHERE v.Mov       = 'Factura Electronica'
-                              AND v.Categoria = 'VENCIDAS'
-                              and x.email is not null
+                            AND fn.MovId is null                              
+                            AND v.Categoria = 'VENCIDAS'                              
+                            AND x.email is not null
                             ORDER BY v.Cliente, v.Vencimiento;";
             using var conexion = new SqlConnection(_sqlConexion);
             return await conexion.QueryAsync<FacturaCobranzaVencida>(sql);
         }
+
+
+         public async Task<IEnumerable<FacturaCobranzaVencida>> ObtenerFacturasCobranzaVencidaSinContestar()
+        {
+            string sql = @"
+            WITH EnviosNoContestados
+                AS
+                (
+                SELECT                
+                ev.MovId 
+                FROM CorreosCXC.notif.EnvioFactura ev
+                JOIN CorreosCXC.notif.Envio e ON e.IdEnvio=ev.IdEnvio
+                AND E.Estado NOT IN ('CONTESTADO')
+                )
+                    SELECT
+
+                                v.Cliente,
+                                v.Nombre       AS RazonSocial,
+                                Factura = v.Mov + ' ' + v.MovID,
+                                v.MovID,
+                                v.FechaEmision,
+                                v.Condicion,
+                                v.Vencimiento,
+                                v.Moneda,
+                                v.TotalVencido,
+                                x.NombreAgente,
+                                x.Tratamiento,
+                                UPPER(x.Nombre)                     AS Nombre,
+                                x.Cargo,
+                                x.Email
+                            FROM etl_mstr.dbo.v_AntiguedadCxC v
+                            LEFT JOIN (SELECT c.RazonSocial, c.NombreAgente, ctos.Tratamiento, ctos.Nombre,
+                                                  ctos.Cargo, ctos.Email, ctos.Telefonos, c.ClienteINT
+                                           FROM litocrm.dbo.v_catClientes c
+                                               LEFT JOIN (SELECT Tratamiento, Nombre, Cargo, Departamento, Telefonos, Email, idClienteINT
+                                                          FROM LitoCRM.dbo.v_catContactos
+                                                          WHERE contactoCXP = 1 AND activo = 1) ctos
+                                                   ON ctos.idClienteINT = c.ClienteINT) x ON x.ClienteINT = v.Cliente
+                            LEFT JOIN EnviosNoContestados fn ON fn.MovId = v.MovID                   
+                            WHERE  1=1                   
+                            AND v.Mov       = 'Factura Electronica'         
+                            AND fn.MovId is not null                              
+                            AND v.Categoria = 'VENCIDAS'                              
+                            AND x.email is not null
+                            ORDER BY v.Cliente, v.Vencimiento;
+                            ";
+            using var conexion = new SqlConnection(_sqlConexion);
+            return await conexion.QueryAsync<FacturaCobranzaVencida>(sql);
+        }
+
+
+
+
+    
+        
+    
+    
+    
     }
 }

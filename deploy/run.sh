@@ -5,11 +5,10 @@
 #   run.sh clientes            facturas del día a cada cliente      (lunes a viernes, 18:00)
 #   run.sh vendedores          cartera sin ingresar a revisión      (martes y viernes, 09:00)
 #   run.sh cobranza            estado de cuenta vencido             (martes y viernes, 09:00)
-#   run.sh seguimiento         acuses + cierre de vencidos          (lunes a viernes, 10:00)
-#   run.sh revisar-respuestas  sólo la detección, no cierra nada    (manual)
+#   run.sh respuestas          lee el buzon y marca quien contesto  (lunes a viernes, 10:00)
 #
 # Lo que venga después del proceso se le pasa tal cual al contenedor, para poder hacer
-#   run.sh seguimiento --previsualizar
+#   run.sh cobranza --previsualizar
 #
 # El proceso es obligatorio: el ejecutable no hace nada sin --clientes o --vendedores, así que
 # invocarlo sin argumento terminaría en 0 sin mandar un solo correo. Aquí se rechaza de entrada.
@@ -43,16 +42,12 @@ case "$PROCESO" in
         PREFIJO_BITACORA="cobranza"
         DESCRIPCION="estado de cuenta vencido a clientes"
         ;;
-    seguimiento)
-        PREFIJO_BITACORA="seguimiento"
-        DESCRIPCION="detección de acuses y cierre de vencidos"
-        ;;
-    revisar-respuestas)
-        PREFIJO_BITACORA="seguimiento"
-        DESCRIPCION="revisión de respuestas de clientes"
+    respuestas)
+        PREFIJO_BITACORA="respuestas"
+        DESCRIPCION="lectura del buzon y marcado de estados"
         ;;
     *)
-        printf 'uso: %s {clientes|vendedores|cobranza|seguimiento|revisar-respuestas} [args...]\n' \
+        printf 'uso: %s {clientes|vendedores|cobranza|respuestas} [args...]\n' \
                "$(basename "$0")" >&2
         exit 64  # EX_USAGE
         ;;
@@ -73,7 +68,7 @@ ARCHIVO_ENV="${ARCHIVO_ENV:-$BASE/.env}"
 DIRECTORIO_LOGS="${DIRECTORIO_LOGS:-$BASE/logs}"
 
 # Un nombre por proceso: el --name es el candado anti-solapamiento, y si los procesos
-# compartieran nombre la corrida de seguimiento de las 10:00 bloquearía —o sería bloqueada por—
+# compartieran nombre la corrida de cobranza de las 09:00 bloquearía —o sería bloqueada por—
 # la de clientes o la de vendedores, que son independientes y sí pueden convivir.
 NOMBRE_CONTENEDOR="notificacion-clientes-$PROCESO"
 

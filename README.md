@@ -8,7 +8,7 @@ configuración, servidor SMTP y bitácora.
 | **Facturas del día** | `--clientes` | A los contactos del cliente marcados en el CRM | Un correo por cliente con el XML y el PDF de sus CFDI adjuntos |
 | **Cartera por vendedor** | `--vendedores` | Al vendedor dueño de la cuenta | Un correo por vendedor con las facturas vencidas que sus clientes todavía no ingresan a revisión |
 | **Cobranza vencida** | `--cobranza` | Al contacto de cuentas por pagar del cliente | Un correo por cliente con su estado de cuenta vencido, sin adjuntos |
-| **Seguimiento** | `--seguimiento` | A los clientes que no acusaron recibo | Un recordatorio dentro del hilo del correo original, con los mismos CFDI |
+| **Respuestas** | `--respuestas` | A nadie: no manda correo | Lee el buzón y marca en `notif.Envio` quién contestó y qué rebotó |
 
 Son procesos independientes: se ejecutan por separado, cada uno escribe su propia bitácora y usan
 plantillas distintas. Comparten el ejecutable porque comparten configuración y conexión SMTP.
@@ -43,17 +43,18 @@ trae un aviso visible para que se corrija el catálogo.
    CFDI del día.
 2. Agrupa por cliente y arma un estado de cuenta con el detalle factura por factura: vencimiento,
    días transcurridos y saldo. No se adjunta ningún CFDI.
-3. Sale **martes y viernes a las 09:00**. El viernes se excluye a quien ya contestó el correo del
-   martes, y a quien no contestó le llega **dentro del mismo hilo** como recordatorio: se registra
-   con `Intento = 2` ligado al del martes, así que el cliente ve una sola conversación por semana
-   y nunca más de dos correos.
+3. Sale **martes y viernes a las 09:00**, con poblaciones distintas: el martes lo que nunca se ha
+   notificado, el viernes lo ya notificado que sigue sin respuesta. El recordatorio va **sin dejar
+   registro** en `notif.Envio` —sólo el primer aviso abre renglón ahí—, pero su `Message-Id` sí
+   queda en `notif.EnvioRecordatorio`, ligado a los envíos que ese correo cubrió: es lo que permite
+   reconocer después una respuesta a él.
 
 Tres detalles que importan:
 
-- **La exclusión del viernes depende del seguimiento.** Se apoya en `notif.Envio` para saber quién
-  contestó, así que necesita `Seguimiento:Habilitado` y que la conciliación haya corrido entre
-  martes y viernes. Si el seguimiento está apagado, el proceso lo avisa en pantalla y en la
-  bitácora, y notifica a todos: prefiere insistir de más a callarse sin decirlo.
+- **El corte lo hace la consulta, no la aplicación.** `ObtenerFacturasCobranzaVencida` trae lo que
+  no aparece en `notif.EnvioFactura`; `ObtenerFacturasCobranzaVencidaSinContestar` trae lo que sí
+  aparece y cuyo envío no está en `CONTESTADO`. Por eso el recordatorio necesita
+  `Seguimiento:Habilitado`: sin registro, su población sale vacía y no se manda nada.
 - **Los saldos nunca se suman entre monedas.** La vista devuelve "Pesos" y "Dolares", y el correo
   presenta un total por cada una. Hoy ningún cliente tiene las dos, pero el día que ocurra un
   total único diría una cifra falsa sin que nadie lo note.
@@ -61,46 +62,76 @@ Tres detalles que importan:
   `x.email is not null`: no hay a quién escribirles. Tiene un costo que conviene tener presente —
   esas cuentas vencidas quedan invisibles aquí y hay que vigilarlas por otro medio.
 
-### Seguimiento: quién contestó
+### Registro de envíos
 
-Detecta qué clientes contestaron los correos que salieron y lo deja registrado en SQL Server. **No
-manda ningún correo**: es la mitad que informa, no la que insiste.
+Cada correo que sale queda como un renglón en `CorreosCXC.notif.Envio`, y sus facturas en
+`CorreosCXC.notif.EnvioFactura`. Eso es lo que hace posible el recordatorio: sin ese registro, una
+factura ya reclamada se ve como nunca notificada y vuelve a salir como primer aviso.
 
 ```
-ENVIADO ──┬── CONTESTADO        el cliente respondió
-          ├── RECORDADO         se le insistió el viernes (sólo cobranza)
-          ├── SIN_RESPUESTA     agotó su vigencia
-          └── FALLIDO           rebotó o no salió del SMTP
+ENVIADO ──┬── CONTESTADO        el cliente respondió       ← lo pone --respuestas
+          ├── FALLIDO           rebotó o no salió del SMTP ← lo pone --respuestas o el envío
+          ├── RECORDADO         se le insistió             ← nadie lo escribe hoy
+          └── SIN_RESPUESTA     agotó su vigencia          ← nadie lo escribe hoy
 ```
 
-1. Cada correo que sale queda como un renglón en `CorreosCXC.notif.Envio`, con el `Message-Id` con
-   el que se envió y el proceso que lo generó (`CLIENTES` o `COBRANZA`).
-2. La corrida de seguimiento abre el buzón remitente por IMAP **en sólo lectura** y cruza las
-   respuestas contra esos `Message-Id`, por `In-Reply-To` o por la cadena `References`. Si el
-   programa de correo del cliente no conserva esos headers, cae a un cruce por remitente + asunto.
-3. Cierra los envíos de cobranza que pasaron `DiasVigencia` sin respuesta.
+### Respuestas: quién contestó
 
-De ahí sale la única política automática que existe: **la regla del viernes de cobranza**. Quien
-contestó el martes no recibe el correo del viernes; quien no, lo recibe dentro del mismo hilo. Las
-facturas del día no tienen recordatorio.
+`--respuestas` abre el buzón remitente por IMAP **en sólo lectura** y cruza los correos contra los
+`Message-Id` de los envíos abiertos, por `In-Reply-To` o por la cadena `References`. Si el programa
+de correo del cliente no conserva esos headers, cae a un cruce por remitente + asunto. Lo que
+encuentra lo escribe en `notif.Envio`: `CONTESTADO` si el cliente respondió, `FALLIDO` si rebotó.
 
-Cuatro cosas que conviene entender antes de encenderlo:
+**No manda ningún correo y no cierra nada por vigencia.** `RECORDADO` y `SIN_RESPUESTA` ya no los
+escribe nadie: se fueron con el cierre por vigencia. `MarcarRecordado` y `MarcarSinRespuesta`
+siguen en `SeguimientoDAO` por si hacen falta.
+
+- **Un "estoy fuera de la oficina" no cuenta como respuesta.** Se descartan por `Auto-Submitted`,
+  `Precedence` y `X-Autoreply`. Ante la duda se insiste: un correo de más es más barato que un
+  cliente que se queda sin su aviso.
+- **`DiasVentanaMaxima` es el tope duro** de cuántos días atrás se lee el buzón. Importa más que
+  antes: como nada cierra los envíos que nadie contesta, un renglón atorado en `ENVIADO` anclaría
+  la ventana para siempre y la búsqueda crecería sin límite.
+- **Los envíos en modo prueba sí se concilian.** El correo salió, sólo que al buzón de pruebas, y
+  contestarlo desde ahí es la única forma de comprobar que el cruce funciona antes de que le
+  llegue nada a un cliente.
+
+### Cómo se cierra un recordatorio contestado
+
+El recordatorio no tiene renglón propio, así que su `Message-Id` no estaría en ninguna parte y la
+respuesta del cliente no casaría con nada. Se resuelve estampando ese id sobre los envíos que el
+correo cubrió:
+
+```
+notif.Envio                    notif.EnvioRecordatorio
+  id=41  [CFDI-A1]  ENVIADO      41 → <rec-97@lito>   (hace 3 semanas)
+  id=57  [CFDI-A2]  ENVIADO      41 → <rec-98@lito>   (hace 2 semanas)
+                                 41 → <rec-99@lito>   (el viernes pasado)
+                                 57 → <rec-99@lito>
+
+el cliente responde a <rec-99@lito>
+        ↓  In-Reply-To casa exacto
+  41 y 57 → CONTESTADO       las dos facturas dejan de salir
+```
+
+Se guardan **todos** los recordatorios, no sólo el último: un cliente que arrastra el correo viejo
+en su bandeja y contesta ahí también se detecta. Y como un mismo recordatorio puede juntar facturas
+de semanas distintas —y por tanto de varios envíos—, todos comparten ese `MessageId` y una sola
+respuesta los cierra de golpe.
+
+Responder al correo del **martes** cierra sólo ese envío; responder a **cualquier recordatorio**
+cierra todos los que aquel correo llevaba.
+
+Dos cosas que conviene entender antes de encenderlo:
 
 - **Necesita una base aparte y permiso de escritura.** El seguimiento vive en `CorreosCXC`, no en
   `Lito`: son datos de esta aplicación, no del ERP. Se crea con `deploy/sql/001-seguimiento.sql` y
   el usuario de la aplicación necesita lectura y escritura ahí; la conexión sigue apuntando a
   `Lito` y se llega por nombre de tres partes. Es el único requisito externo. Sin eso, la corrida
   truena al registrar el primer envío, después de haber mandado los correos.
-- **Cerrar los envíos no es cosmético.** La conciliación busca en el buzón desde el pendiente más
-  viejo, así que un envío que nunca se cierra ancla esa ventana para siempre y la búsqueda IMAP
-  crece sin límite. `DiasVigencia` los cierra; `DiasVentanaMaxima` es el tope duro que protege
-  aunque lo anterior falle.
-- **Los envíos en modo prueba no cuentan para la regla del viernes.** Se guardan con
-  `ModoPrueba = 1` y la consulta los excluye: el cliente real nunca vio ese correo, así que una
-  "respuesta" desde el buzón de pruebas no debe excluir a nadie de un correo de verdad.
-- **Un "estoy fuera de la oficina" no cuenta como respuesta.** Se descartan por `Auto-Submitted`,
-  `Precedence` y `X-Autoreply`. Ante la duda se insiste: un correo de más es más barato que un
-  cliente que se queda sin su aviso.
+- **Los envíos en modo prueba quedan marcados.** Se guardan con `ModoPrueba = 1`, pero sus facturas
+  entran igual a `EnvioFactura`: una corrida de prueba sí saca esas facturas de la población del
+  primer aviso. Conviene limpiarlas si se quiere volver a probar el martes.
 
 ## Requisitos
 
@@ -219,20 +250,27 @@ El modo de cifrado se deduce del puerto, así que basta cambiar el número:
 dotnet run -- --clientes            # facturas del día a los clientes
 dotnet run -- --vendedores          # cartera pendiente de revisión a los vendedores
 dotnet run -- --cobranza            # estado de cuenta vencido a los clientes
-dotnet run -- --seguimiento         # detecta acuses y cierra lo que agotó su vigencia
+dotnet run -- --respuestas          # lee el buzón y marca quién contestó
 ```
 
-En `--cobranza`, la regla del viernes se decide por el día de la corrida. Para una corrida manual
-se puede forzar en cualquier sentido con `--con-exclusion` o `--sin-exclusion`, de modo que el
-resultado no dependa del calendario.
+`--cobranza` manda dos poblaciones distintas según el día, y la consulta las separa sin traslape:
 
-El seguimiento se puede correr por mitades, que es como se prueba sin arriesgar un correo:
+| Día | Población | Plantilla |
+|---|---|---|
+| martes | facturas vencidas que **nunca** se han notificado | primer aviso |
+| viernes | facturas ya notificadas cuyo envío **sigue sin contestar** | recordatorio |
+
+El corte lo hace SQL, cruzando la antigüedad de saldos contra `CorreosCXC.notif`. Para una corrida
+manual se puede forzar con `--recordatorio` o `--primer-aviso`, de modo que el resultado no dependa
+del calendario:
 
 ```bash
-dotnet run -- --revisar-respuestas  # sólo detecta; no cierra nada ni manda correos
+dotnet run -- --cobranza --recordatorio --previsualizar
 ```
 
-Ninguno de los dos manda correo: el recordatorio de cobranza es el correo del viernes.
+> **El recordatorio depende de que `--respuestas` haya corrido.** La consulta del viernes descarta
+> los envíos en `CONTESTADO`, y ese estado lo pone la lectura del buzón. Si `--respuestas` deja de
+> correr entre el martes y el viernes, a quien ya contestó se le insiste igual.
 
 Con `--previsualizar` se genera el HTML de cada correo en el directorio de salida y **no se envía
 nada**. Sirve para iterar el diseño de la plantilla, y funciona con todos los procesos:
