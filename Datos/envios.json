@@ -12,13 +12,17 @@
     "Destinatarios": "mestelles@litoprocess.com",
     "ModoPrueba": true,
     "FechaEnvio": "2026-08-20T17:31:28.44122-06:00",
-    "Estado": "Enviado",
+    "Estado": "Contestado",
     "Error": null,
-    "FechaRespuesta": null,
-    "RespondioEmail": null,
-    "RespuestaMessageId": null,
-    "RespuestaAsunto": null,
-    "RecordatorioMessageIds": [],
+    "FechaRespuesta": "2026-08-20T17:34:35-06:00",
+    "RespondioEmail": "mestelles@litoprocess.com",
+    "RespuestaMessageId": "IA0PR11MB71872E7C7BB478ACF2361D70A3A42@IA0PR11MB7187.namprd11.prod.outlook.com",
+    "RespuestaAsunto": "Re: Recordatorio: estado de cuenta con saldo vencido - Ferreteria y Materiales del Bajio SA de CV",
+    "RecordatorioMessageIds": [
+      "SSOPFAAN3UU4.NQOZHM4RJHKP@litoprocess.com",
+      "AJKTLLAN3UU4.GSU0VBTIARBO2@litoprocess.com",
+      "YXH4BQAN3UU4.N6H5UNYTMYFW1@litoprocess.com"
+    ],
     "Facturas": [
       {
         "MovID": "CFDI-200011",
