@@ -14,22 +14,7 @@
     "Nombre": "PATRICIA GOMEZ",
     "Cargo": "Cuentas por Pagar",
     "Email": "tonovarelaq@gmail.com"
-  },
-    {
-    "Cliente": "2001",
-    "RazonSocial": "Ferreteria y Materiales del Bajio SA de CV",
-    "Factura": "Factura Electronica CFDI-200012",
-    "MovID": "CFDI-200012",
-    "FechaEmision": "2026-06-15",
-    "Condicion": "15 Dias",
-    "Vencimiento": "2026-07-15",
-    "Moneda": "Pesos",
-    "TotalVencido": 10.0,
-    "NombreAgente": "Carlos Ramirez",
-    "Tratamiento": "LIC.",
-    "Nombre": "PATRICIA GOMEZ",
-    "Cargo": "Cuentas por Pagar",
-    "Email": "tonovarelaq@gmail.com"
   }
+  
  
 ]

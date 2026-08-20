@@ -4,24 +4,23 @@
     "Cliente": "2001",
     "RazonSocial": "Ferreteria y Materiales del Bajio SA de CV",
     "Proceso": "Cobranza",
-    "MessageId": "ULTZY1AN3UU4.CTD45VUYPV661@litoprocess.com",
-    "Token": "5adde882-44e1-4771-b840-a3bc697bfd36",
+    "MessageId": "2ZT4IKCN3UU4.JBWHP95AU2781@litoprocess.com",
+    "Token": "00dec49d-a3af-4e97-a89e-4b2fee657e43",
     "IdEnvioOriginal": null,
     "Intento": 1,
     "Asunto": "Estado de cuenta con saldo vencido - Ferreteria y Materiales del Bajio SA de CV",
     "Destinatarios": "mestelles@litoprocess.com",
     "ModoPrueba": true,
-    "FechaEnvio": "2026-08-20T17:31:28.44122-06:00",
+    "FechaEnvio": "2026-08-20T17:40:35.379088-06:00",
     "Estado": "Contestado",
     "Error": null,
-    "FechaRespuesta": "2026-08-20T17:34:35-06:00",
+    "FechaRespuesta": "2026-08-20T17:46:01-06:00",
     "RespondioEmail": "mestelles@litoprocess.com",
-    "RespuestaMessageId": "IA0PR11MB71872E7C7BB478ACF2361D70A3A42@IA0PR11MB7187.namprd11.prod.outlook.com",
+    "RespuestaMessageId": "IA0PR11MB7187ADAB954EF512970870F7A3A42@IA0PR11MB7187.namprd11.prod.outlook.com",
     "RespuestaAsunto": "Re: Recordatorio: estado de cuenta con saldo vencido - Ferreteria y Materiales del Bajio SA de CV",
     "RecordatorioMessageIds": [
-      "SSOPFAAN3UU4.NQOZHM4RJHKP@litoprocess.com",
-      "AJKTLLAN3UU4.GSU0VBTIARBO2@litoprocess.com",
-      "YXH4BQAN3UU4.N6H5UNYTMYFW1@litoprocess.com"
+      "0EL0QWCN3UU4.BOXEETTBRHPR3@litoprocess.com",
+      "UNIB32DN3UU4.CHDPS65S7R153@litoprocess.com"
     ],
     "Facturas": [
       {
