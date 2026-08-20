@@ -50,6 +50,14 @@ namespace notificacion_clientes.Configuracion
         /// <summary>Ruta absoluta de la plantilla del recordatorio de cobranza (viernes).</summary>
         public required string RutaPlantillaCobranzaRecordatorio { get; init; }
 
+        /// <summary>
+        /// Carpeta con JSON de prueba (facturas.json, cobranza-vencida.json,
+        /// revision-vendedores.json) que sustituye a la consulta SQL cuando no es null. Se
+        /// activa con 'DatosPrueba:Ruta' (variable DatosPrueba__Ruta); útil por VPN, donde el
+        /// servidor de base de datos responde lento.
+        /// </summary>
+        public string? RutaDatosPrueba { get; init; }
+
         public static AppSettings Cargar()
         {
             // El archivo es opcional: dentro del contenedor toda la configuración llega por variables de entorno.
@@ -99,6 +107,10 @@ namespace notificacion_clientes.Configuracion
                 RutaPlantillaVendedor = Path.Combine(
                     AppContext.BaseDirectory,
                     configuracion["Correo:PlantillaVendedor"] ?? Path.Combine("Plantillas", "notificacion-vendedor.html")),
+
+                RutaDatosPrueba = string.IsNullOrWhiteSpace(configuracion["DatosPrueba:Ruta"])
+                    ? null
+                    : Path.Combine(RaizProyecto, configuracion["DatosPrueba:Ruta"]!),
 
                 RutaLogo = Path.Combine(
                     AppContext.BaseDirectory,

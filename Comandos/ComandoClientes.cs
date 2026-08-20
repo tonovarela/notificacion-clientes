@@ -9,8 +9,8 @@ using notificacion_clientes.Services;
 namespace notificacion_clientes.Comandos
 {
     /// <summary>
-    /// Las facturas del día a cada cliente. Es el proceso original; lo que agrega el módulo de
-    /// seguimiento es saltarse las facturas ya notificadas y dejar registro de cada correo.
+    /// Las facturas del día a cada cliente. No lleva seguimiento: a diferencia de cobranza, aquí
+    /// no hay recordatorio ni exclusión por respuesta, así que no hace falta el registro.
     /// </summary>
     public class ComandoClientes
     {
@@ -34,9 +34,6 @@ namespace notificacion_clientes.Comandos
                 Console.WriteLine("Obteniendo facturas...");
                 notificaciones = await _dep.Notificacion.Preparar();
 
-                if (_dep.Settings.Seguimiento.Habilitado)
-                    notificaciones = await DescartarYaNotificadas(notificaciones);
-
                 _dep.Reporte.Imprimir(notificaciones);
 
                 // Con --previsualizar se genera el HTML en disco y no se envía nada.
@@ -54,9 +51,6 @@ namespace notificacion_clientes.Comandos
                 Console.WriteLine("Enviando correos...");
                 resultados = await _dep.Correo.Enviar(notificaciones);
                 _dep.Reporte.ImprimirEnvios(resultados, _dep.Settings.Smtp.ModoPrueba);
-
-                if (_dep.Settings.Seguimiento.Habilitado)
-                    await Registrar(notificaciones, resultados);
             }
             catch (Exception ex)
             {
@@ -70,43 +64,6 @@ namespace notificacion_clientes.Comandos
             Console.WriteLine($"Bitácora: {rutaBitacora}");
         }
 
-        /// <summary>
-        /// Quita lo que ya salió en un envío anterior. Es lo que impide que una factura abra un
-        /// envío nuevo cada día y dispare varios recordatorios por lo mismo.
-        /// </summary>
-        private async Task<IReadOnlyList<NotificacionCliente>> DescartarYaNotificadas(
-            IReadOnlyList<NotificacionCliente> notificaciones)
-        {
-            var filtrado = await _dep.Seguimiento.FiltrarYaNotificadas(notificaciones);
-
-            if (filtrado.Omitidas.Count > 0)
-                Console.WriteLine($"Se omitieron {filtrado.Omitidas.Count} facturas ya notificadas: " +
-                                  string.Join(", ", filtrado.Omitidas.Take(10)) +
-                                  (filtrado.Omitidas.Count > 10 ? "..." : string.Empty));
-
-            return filtrado.Notificaciones;
-        }
-
-        /// <summary>
-        /// El registro va después de enviar y nunca tumba la corrida: los correos ya salieron y
-        /// reintentarlos los duplicaría. Lo que no se pudo guardar se reporta y se sigue.
-        /// </summary>
-        private async Task Registrar(
-            IReadOnlyList<NotificacionCliente> notificaciones,
-            IReadOnlyList<ResultadoEnvio> resultados)
-        {
-            var registro = await _dep.Seguimiento.RegistrarEnvios(
-                notificaciones, resultados, _dep.Settings.Smtp.ModoPrueba);
-
-            Console.WriteLine();
-            Console.WriteLine($"Seguimiento: {registro.Registrados} envíos registrados.");
-
-            foreach (var error in registro.Errores)
-            {
-                Console.WriteLine($"  AVISO: no se registró — {error}");
-                Environment.ExitCode = 1;
-            }
-        }
     }
 
     /// <summary>El HTML de previsualización se guarda junto al ejecutable, sin enviar nada.</summary>

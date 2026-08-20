@@ -17,10 +17,10 @@ namespace notificacion_clientes.Services
     /// </summary>
     public class CobranzaVencidaService
     {
-        private readonly FacturaDAO _facturaDAO;
-        private readonly SeguimientoDAO _seguimientoDAO;
+        private readonly IFacturaDAO _facturaDAO;
+        private readonly ISeguimientoDAO _seguimientoDAO;
 
-        public CobranzaVencidaService(FacturaDAO facturaDAO, SeguimientoDAO seguimientoDAO)
+        public CobranzaVencidaService(IFacturaDAO facturaDAO, ISeguimientoDAO seguimientoDAO)
         {
             _facturaDAO = facturaDAO;
             _seguimientoDAO = seguimientoDAO;

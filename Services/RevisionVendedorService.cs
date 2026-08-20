@@ -13,9 +13,9 @@ namespace notificacion_clientes.Services
     /// </summary>
     public class RevisionVendedorService
     {
-        private readonly FacturaDAO _facturaDAO;
+        private readonly IFacturaDAO _facturaDAO;
 
-        public RevisionVendedorService(FacturaDAO facturaDAO)
+        public RevisionVendedorService(IFacturaDAO facturaDAO)
         {
             _facturaDAO = facturaDAO;
         }

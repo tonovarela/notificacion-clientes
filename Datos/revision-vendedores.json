@@ -1,0 +1,50 @@
+[
+  {
+    "Cliente": "3001",
+    "MovID": "300011",
+    "RazonSocial": "Constructora del Valle SA de CV",
+    "Factura": "Factura Electronica CFDI-300011",
+    "FechaEmision": "2026-05-10",
+    "Vencimiento": "2026-06-10",
+    "Saldo": 34500.00,
+    "EstatusCxC": "2.31-60",
+    "Vendedor": "LUIS HERNANDEZ",
+    "Email": "tonovarelaq@gmail.com"
+  },
+  {
+    "Cliente": "3001",
+    "MovID": "300022",
+    "RazonSocial": "Constructora del Valle SA de CV",
+    "Factura": "Factura Electronica CFDI-300022",
+    "FechaEmision": "2026-04-02",
+    "Vencimiento": "2026-05-02",
+    "Saldo": 18900.00,
+    "EstatusCxC": "3.61-90",
+    "Vendedor": "LUIS HERNANDEZ",
+    "Email": "tonovarelaq@gmail.com"
+  },
+  {
+    "Cliente": "3002",
+    "MovID": "300150",
+    "RazonSocial": "Papeleria y Suministros Aguila SA de CV",
+    "Factura": "Factura Electronica CFDI-300150",
+    "FechaEmision": "2026-06-01",
+    "Vencimiento": "2026-07-01",
+    "Saldo": 5200.00,
+    "EstatusCxC": "2.31-60",
+    "Vendedor": "LUIS HERNANDEZ",
+    "Email": "tonovarelaq@gmail.com"
+  },
+  {
+    "Cliente": "3003",
+    "MovID": "300400",
+    "RazonSocial": "Transportes y Logistica del Pacifico SA de CV",
+    "Factura": "Factura Electronica CFDI-300400",
+    "FechaEmision": "2026-03-01",
+    "Vencimiento": "2026-04-01",
+    "Saldo": 61200.00,
+    "EstatusCxC": "4.91-120",
+    "Vendedor": "AGENTE NO VALIDO",
+    "Email": "gcasas@litoprocess.com"
+  }
+]

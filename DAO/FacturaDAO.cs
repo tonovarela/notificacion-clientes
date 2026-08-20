@@ -5,7 +5,7 @@ using notificacion_clientes.Entity;
 
 namespace notificacion_clientes.DAO
 {
-    public class FacturaDAO
+    public class FacturaDAO : IFacturaDAO
     {
 
         private readonly string _sqlConexion;

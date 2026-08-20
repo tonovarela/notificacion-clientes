@@ -11,7 +11,7 @@ namespace notificacion_clientes.DAO
     /// Lee y escribe CorreosCXC.notif: qué se envió, quién contestó y a quién toca insistirle.
     /// Requiere permiso de escritura sobre esa base (ver deploy/sql/001-seguimiento.sql).
     /// </summary>
-    public class SeguimientoDAO
+    public class SeguimientoDAO : ISeguimientoDAO
     {
         /// <summary>
         /// Las tablas viven en su propia base, CorreosCXC, y no dentro de Lito: son datos de esta
@@ -123,31 +123,6 @@ namespace notificacion_clientes.DAO
             transaccion.Commit();
 
             return idEnvio;
-        }
-
-        /// <summary>
-        /// Facturas que ya salieron en un envío que no está FALLIDO. Es la red de seguridad contra
-        /// una doble corrida o un rango de fechas mal puesto.
-        ///
-        /// Se pregunta por el lote completo y no factura por factura: una corrida con cien clientes
-        /// haría cien viajes a la base para averiguar lo mismo.
-        /// </summary>
-        public async Task<HashSet<string>> ObtenerFacturasYaNotificadas(IReadOnlyCollection<string> movIds)
-        {
-            if (movIds.Count == 0)
-                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            const string sql = $@"
-                SELECT DISTINCT ef.MovID
-                FROM {TablaEnvioFactura} ef
-                    INNER JOIN {TablaEnvio} e ON e.IdEnvio = ef.IdEnvio
-                WHERE ef.MovID IN @MovIds
-                  AND e.Estado <> 'FALLIDO';";
-
-            using var conexion = new SqlConnection(_sqlConexion);
-            var notificadas = await conexion.QueryAsync<string>(sql, new { MovIds = movIds });
-
-            return new HashSet<string>(notificadas, StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using notificacion_clientes.Configuracion;
 using notificacion_clientes.DAO;
@@ -23,14 +24,20 @@ namespace notificacion_clientes.Comandos
 
             _http = new HttpClient { Timeout = TimeSpan.FromSeconds(settings.TimeoutApiSegundos) };
 
-            FacturaDAO = new FacturaDAO(settings.CadenaSqlServer);
+            var usaDatosPrueba = !string.IsNullOrWhiteSpace(settings.RutaDatosPrueba);
+            FacturaDAO = usaDatosPrueba
+                ? new FacturaDAOJson(settings.RutaDatosPrueba!)
+                : new FacturaDAO(settings.CadenaSqlServer);
             var facturaDAO = FacturaDAO;
             var descargaService = new FacturaDescargaService(_http, settings.UrlDescargaFacturas);
 
-            SeguimientoDAO = new SeguimientoDAO(settings.CadenaSqlServer);
+            SeguimientoDAO = usaDatosPrueba
+                ? new SeguimientoDAOJson(Path.Combine(settings.RutaDatosPrueba!, "envios.json"))
+                : new SeguimientoDAO(settings.CadenaSqlServer);
 
             Notificacion = new NotificacionService(
-                facturaDAO, descargaService, new LectorCfdi(), settings.DiasAtrasFacturas);
+                facturaDAO, descargaService, new LectorCfdi(), settings.DiasAtrasFacturas,
+                omitirDescargaArchivos: usaDatosPrueba);
 
             RevisionVendedor = new RevisionVendedorService(facturaDAO);
 
@@ -45,16 +52,15 @@ namespace notificacion_clientes.Comandos
             Bitacora = new BitacoraService(settings.RutaBitacora, settings.Smtp);
             Reporte = new ReporteConsola();
 
-            Seguimiento = new SeguimientoService(SeguimientoDAO);
             Respuesta = new RespuestaService(settings.Imap);
             CobranzaVencida = new CobranzaVencidaService(facturaDAO, SeguimientoDAO);
         }
 
         public AppSettings Settings { get; }
 
-        public FacturaDAO FacturaDAO { get; }
+        public IFacturaDAO FacturaDAO { get; }
 
-        public SeguimientoDAO SeguimientoDAO { get; }
+        public ISeguimientoDAO SeguimientoDAO { get; }
 
         public NotificacionService Notificacion { get; }
 
@@ -71,8 +77,6 @@ namespace notificacion_clientes.Comandos
         public BitacoraService Bitacora { get; }
 
         public ReporteConsola Reporte { get; }
-
-        public SeguimientoService Seguimiento { get; }
 
         public RespuestaService Respuesta { get; }
 

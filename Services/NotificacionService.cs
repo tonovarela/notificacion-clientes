@@ -14,21 +14,24 @@ namespace notificacion_clientes.Services
     /// </summary>
     public class NotificacionService
     {
-        private readonly FacturaDAO _facturaDAO;
+        private readonly IFacturaDAO _facturaDAO;
         private readonly FacturaDescargaService _descargaService;
         private readonly LectorCfdi _lectorCfdi;
         private readonly int _diasAtras;
+        private readonly bool _omitirDescargaArchivos;
 
         public NotificacionService(
-            FacturaDAO facturaDAO,
+            IFacturaDAO facturaDAO,
             FacturaDescargaService descargaService,
             LectorCfdi lectorCfdi,
-            int diasAtras = 0)
+            int diasAtras = 0,
+            bool omitirDescargaArchivos = false)
         {
             _facturaDAO = facturaDAO;
             _descargaService = descargaService;
             _lectorCfdi = lectorCfdi;
             _diasAtras = diasAtras;
+            _omitirDescargaArchivos = omitirDescargaArchivos;
         }
 
         public async Task<IReadOnlyList<NotificacionCliente>> Preparar(CancellationToken cancelacion = default)
@@ -85,7 +88,9 @@ namespace notificacion_clientes.Services
             foreach (var grupo in filas.GroupBy(f => f.MovID))
             {
                 var factura = grupo.First();
-                var archivos = await DescargarArchivos(grupo.Key, cancelacion);
+                var archivos = _omitirDescargaArchivos
+                    ? new List<ArchivoFactura>()
+                    : await DescargarArchivos(grupo.Key, cancelacion);
 
                 // El desglose de IVA solo existe en el XML; la base únicamente guarda el subtotal.
                 var importes = archivos.FirstOrDefault(a => a.Tipo == TipoArchivo.Xml) is { } xml

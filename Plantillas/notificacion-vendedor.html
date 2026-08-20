@@ -92,7 +92,9 @@
                   </tr>
                   {{ for factura in cliente.facturas }}
                   <tr>
-                    <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5;">{{ factura.factura }}<br><span style="font-size:11px; color:#9aa5b1;">Antigüedad {{ factura.antiguedad }} días</span></td>
+                    <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5;">{{ factura.factura }}<br><span style="font-size:11px; color:#9aa5b1;">
+                      <!-- Antigüedad {{ factura.antiguedad }} -->
+                    </span></td>
                     <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5; color:#52606d; white-space:nowrap;">{{ factura.fecha_emision }}</td>
                     <td style="padding:10px 8px; border-bottom:1px solid #f0f2f5; color:#52606d; white-space:nowrap;">{{ factura.vencimiento }}</td>
                     <td align="right" style="padding:10px 8px; border-bottom:1px solid #f0f2f5; white-space:nowrap; font-variant-numeric:tabular-nums; {{ if factura.dias_vencido > 60 }}color:#ab091e; font-weight:bold;{{ else }}color:#52606d;{{ end }}">{{ factura.dias_vencido }} días</td>
