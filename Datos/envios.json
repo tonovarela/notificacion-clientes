@@ -4,21 +4,23 @@
     "Cliente": "2001",
     "RazonSocial": "Ferreteria y Materiales del Bajio SA de CV",
     "Proceso": "Cobranza",
-    "MessageId": "IVKPIB3W3UU4.SOU1RG1K30572@litoprocess.com",
-    "Token": "a81043b8-c00c-4f6c-8e42-ec725aa86bfc",
+    "MessageId": "2QSYH1IW3UU4.LX2XK2ATJGLW@litoprocess.com",
+    "Token": "63b9e1e7-daf0-41a4-8d9a-45d5c90d2d96",
     "IdEnvioOriginal": null,
     "Intento": 1,
     "Asunto": "Estado de cuenta con saldo vencido - Ferreteria y Materiales del Bajio SA de CV",
-    "Destinatarios": "tonovarelaq@litoprocess.com",
+    "Destinatarios": "mestelles@litoprocess.com",
     "ModoPrueba": false,
-    "FechaEnvio": "2026-08-21T12:42:29.659167-06:00",
+    "FechaEnvio": "2026-08-21T13:35:55.891885-06:00",
     "Estado": "Enviado",
     "Error": null,
     "FechaRespuesta": null,
     "RespondioEmail": null,
     "RespuestaMessageId": null,
     "RespuestaAsunto": null,
-    "RecordatorioMessageIds": [],
+    "RecordatorioMessageIds": [
+      "ID2N5BJW3UU4.H22HMI2GTZ1D@litoprocess.com"
+    ],
     "Facturas": [
       {
         "MovID": "CFDI-200011",

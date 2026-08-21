@@ -2,7 +2,7 @@
   {
     "Cliente": "2001",
     "RazonSocial": "Ferreteria y Materiales del Bajio SA de CV",
-    "Factura": "Factura Electronica CFDI-200011",
+    "Factura": "Factura Electronica CFDI-2001",
     "MovID": "CFDI-200011",
     "FechaEmision": "2026-06-15",
     "Condicion": "30 Dias",
@@ -13,8 +13,10 @@
     "Tratamiento": "LIC.",
     "Nombre": "PATRICIA GOMEZ",
     "Cargo": "Cuentas por Pagar",
-    "Email": "tonovarelaq@litoprocess.com"
+    "Email": "mestelles@litoprocess.com"
   }
+  
+  
   
  
 ]
