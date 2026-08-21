@@ -136,7 +136,20 @@ namespace notificacion_clientes.Entity
         References,
 
         /// <summary>Sin headers de hilo: casó por remitente + asunto. Es el aproximado.</summary>
-        RemitenteYAsunto
+        RemitenteYAsunto,
+
+        /// <summary>
+        /// El aviso de no entrega devolvió el identificador de sobre con el que salió el correo,
+        /// que es nuestro token. Es el cruce más exacto de todos: no pasa por ningún header que
+        /// el servidor del cliente pueda haber perdido.
+        /// </summary>
+        EnvelopeId,
+
+        /// <summary>
+        /// Sólo para rebotes: el aviso no traía con qué identificar el envío, pero la dirección
+        /// que reporta como fallida es una de las que se notificaron. Es el aproximado del rebote.
+        /// </summary>
+        DestinatarioDelRebote
     }
 
     /// <summary>Una respuesta detectada en el buzón, ya casada con el envío que la provocó.</summary>
@@ -162,9 +175,21 @@ namespace notificacion_clientes.Entity
         public string? RespondioARecordatorio { get; init; }
 
         /// <summary>
-        /// True cuando el correo es un rebote (mailer-daemon / postmaster). No es una respuesta:
-        /// el envío se marca FALLIDO para que cobranza corrija la dirección en el CRM.
+        /// True cuando el correo es un aviso de no entrega y no una respuesta del cliente.
         /// </summary>
         public bool EsRebote { get; init; }
+
+        /// <summary>
+        /// Lo que dice el reporte formal del rebote. Null cuando el correo se identificó como
+        /// rebote sólo por venir de mailer-daemon, sin un delivery-status que leer: en ese caso
+        /// no hay forma de saber si el fallo era definitivo, y se trata como si lo fuera.
+        /// </summary>
+        public InformeRebote? Rebote { get; init; }
+
+        /// <summary>
+        /// Si este rebote cierra el envío. Un retraso no cierra nada: el correo sigue en cola del
+        /// otro lado y puede entregarse solo, así que marcarlo FALLIDO sería adelantarse.
+        /// </summary>
+        public bool CierraElEnvio => EsRebote && (Rebote?.EsDefinitivo ?? true);
     }
 }

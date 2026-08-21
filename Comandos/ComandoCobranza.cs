@@ -80,7 +80,8 @@ namespace notificacion_clientes.Comandos
             }
 
             var rutaBitacora = await _dep.Bitacora.EscribirCobranza(
-                cobranza, resultados, inicio, esRecordatorio, errorFatal);
+                cobranza, resultados, inicio, esRecordatorio, errorFatal,
+                _dep.Correo.ServidorAvisaNoEntrega);
 
             Console.WriteLine();
             Console.WriteLine($"Bitácora: {rutaBitacora}");
@@ -130,11 +131,18 @@ namespace notificacion_clientes.Comandos
                         ModoPrueba = _dep.Settings.Smtp.ModoPrueba,
                         FechaEnvio = DateTime.Now,
                         Estado = resultado.Enviado ? EstadoEnvio.Enviado : EstadoEnvio.Fallido,
-                        Error = resultado.Error,
+                        // No es sólo el error del envío: un correo que salió bien puede traer
+                        // contactos que el servidor rechazó o que ni siquiera son direcciones.
+                        // El renglón queda ENVIADO con la nota, que es lo que revisa cobranza
+                        // para saber a quién hay que corregirle el dato en el CRM.
+                        Error = resultado.Incidencias,
                         Facturas = Detallar(notificacion)
                     });
 
                     registrados++;
+
+                    if (resultado.Enviado && resultado.TieneDireccionesConProblema)
+                        Console.WriteLine($"  AVISO: a {resultado.Cliente} le salió el correo, pero no a todos sus contactos — {resultado.Incidencias}");
                 }
                 catch (Exception ex)
                 {

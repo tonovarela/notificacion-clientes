@@ -9,7 +9,8 @@ namespace notificacion_clientes.Comandos
 {
     /// <summary>
     /// Lee el buzón y le pone estado a los envíos: CONTESTADO al que el cliente respondió,
-    /// FALLIDO al que rebotó. No manda ningún correo y no cierra nada por vigencia.
+    /// FALLIDO al que rebotó de forma definitiva. No manda ningún correo y no cierra nada por
+    /// vigencia. Los avisos de entrega retrasada se reportan pero no cambian ningún estado.
     ///
     /// Es la pieza que hace útil al recordatorio de cobranza. La consulta del viernes descarta
     /// los envíos en CONTESTADO, pero ese estado no se pone solo: sin esta corrida, a un cliente
@@ -80,7 +81,12 @@ namespace notificacion_clientes.Comandos
             var detectadas = await _dep.Respuesta.Conciliar(abiertos, _dep.Settings.Seguimiento.DiasVentanaMaxima);
 
             var respuestas = detectadas.Where(d => !d.EsRebote).ToList();
-            var rebotes = detectadas.Where(d => d.EsRebote).ToList();
+
+            // Un rebote sólo cierra el envío si el servidor ya se rindió. Mientras siga
+            // reintentando el correo puede entregarse solo, y marcarlo FALLIDO sacaría al cliente
+            // del recordatorio por una dirección que en realidad sí sirve.
+            var rebotes = detectadas.Where(d => d.CierraElEnvio).ToList();
+            var temporales = detectadas.Where(d => d.EsRebote && !d.CierraElEnvio).ToList();
 
             foreach (var respuesta in respuestas)
                 await _dep.SeguimientoDAO.MarcarContestado(respuesta);
@@ -92,7 +98,8 @@ namespace notificacion_clientes.Comandos
             {
                 Revisados = abiertos.Count,
                 Respuestas = respuestas,
-                Rebotes = rebotes
+                Rebotes = rebotes,
+                RebotesTemporales = temporales
             };
         }
     }

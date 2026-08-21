@@ -15,7 +15,14 @@ namespace notificacion_clientes.Entity
         /// <summary>Respuestas de clientes. Cada una deja su envío en CONTESTADO.</summary>
         public IReadOnlyList<RespuestaDetectada> Respuestas { get; init; } = Array.Empty<RespuestaDetectada>();
 
-        /// <summary>Rebotes: la dirección no existe. No son respuestas y dejan el envío FALLIDO.</summary>
+        /// <summary>Rebotes definitivos: el correo no llegó ni va a llegar. Dejan el envío FALLIDO.</summary>
         public IReadOnlyList<RespuestaDetectada> Rebotes { get; init; } = Array.Empty<RespuestaDetectada>();
+
+        /// <summary>
+        /// Avisos de que la entrega se está retrasando. No cambian el estado de nada —el correo
+        /// sigue en cola y puede entregarse solo—, pero se reportan: un retraso que se repite
+        /// cada corrida acaba siendo un fallo, y conviene verlo venir.
+        /// </summary>
+        public IReadOnlyList<RespuestaDetectada> RebotesTemporales { get; init; } = Array.Empty<RespuestaDetectada>();
     }
 }

@@ -71,6 +71,15 @@ namespace notificacion_clientes.Services
 
                 if (resultado.CopiaOculta.Count > 0)
                     Console.WriteLine($"  CCO: {string.Join(", ", resultado.CopiaOculta)}");
+
+                // Un correo puede salir "enviado" y aun así no haberle llegado a un contacto.
+                // Se avisa aparte para que no se confunda con el resultado del envío completo.
+                foreach (var invalida in resultado.DireccionesInvalidas)
+                    Console.WriteLine($"  INVÁLIDA: '{invalida}' no es una dirección de correo; se omitió — corregir en el CRM");
+
+                foreach (var rechazado in resultado.Rechazados)
+                    Console.WriteLine($"  RECHAZADA: {rechazado.Email} — el servidor respondió {rechazado.Codigo} {rechazado.Respuesta}" +
+                                      (rechazado.EsDefinitivo ? " — corregir en el CRM" : " — rechazo temporal, puede pasar en el siguiente envío"));
             }
         }
 
@@ -98,15 +107,31 @@ namespace notificacion_clientes.Services
         {
             Console.WriteLine();
             Console.WriteLine($"Envíos revisados contra el buzón: {resultado.Revisados}");
-            Console.WriteLine($"Acuses detectados: {resultado.Respuestas.Count} | Rebotes: {resultado.Rebotes.Count}");
+            Console.WriteLine($"Acuses detectados: {resultado.Respuestas.Count}" +
+                              $" | Rebotes: {resultado.Rebotes.Count}" +
+                              $" | Entregas retrasadas: {resultado.RebotesTemporales.Count}");
 
             foreach (var respuesta in resultado.Respuestas)
                 Console.WriteLine($"  CONTESTADO {respuesta.Envio.Cliente} - {respuesta.Envio.RazonSocial}" +
                                   $" | {respuesta.DeEmail} el {respuesta.Fecha:dd/MM/yyyy HH:mm}");
 
             foreach (var rebote in resultado.Rebotes)
-                Console.WriteLine($"  REBOTE {rebote.Envio.Cliente}: {rebote.Envio.Destinatarios} — corregir en el CRM");
+                Console.WriteLine($"  REBOTE {rebote.Envio.Cliente}: {DescribirRebote(rebote)}" +
+                                  (rebote.Rebote?.CulpaDeLaDireccion ?? true ? " — corregir en el CRM" : string.Empty));
+
+            // No cambian ningún estado: se listan para que un retraso que se repite cada corrida
+            // no pase inadvertido hasta que el servidor se rinda días después.
+            foreach (var retraso in resultado.RebotesTemporales)
+                Console.WriteLine($"  RETRASADO {retraso.Envio.Cliente}: {DescribirRebote(retraso)}" +
+                                  " — el servidor sigue intentando; no se cambió el estado");
         }
+
+        /// <summary>
+        /// Con reporte se nombra la dirección exacta y el código; sin él sólo se sabe a quién iba
+        /// el correo, que es lo que había antes de leer el delivery-status.
+        /// </summary>
+        private static string DescribirRebote(RespuestaDetectada rebote) =>
+            rebote.Rebote is { } informe ? informe.ToString() : rebote.Envio.Destinatarios;
 
         private static string Describir(ArchivoFactura? archivo) =>
             archivo is null ? "no disponible" : $"{archivo.NombreArchivo} ({archivo.Tamanio} bytes)";

@@ -15,7 +15,7 @@ namespace notificacion_clientes.Services
 {
     /// <summary>
     /// Lee el buzón que manda los correos y averigua cuáles de los envíos pendientes ya tienen
-    /// respuesta del cliente.
+    /// respuesta del cliente, y cuáles rebotaron.
     ///
     /// El buzón se abre SIEMPRE en sólo lectura: es el inbox que usa cobranza a diario y un
     /// proceso automático no tiene por qué marcarle correos como leídos.
@@ -27,13 +27,18 @@ namespace notificacion_clientes.Services
             @"^\s*(re|rv|fwd|fw|ref)\s*(\[\d+\])?\s*:\s*",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        /// <summary>Buzones que mandan rebotes. Un rebote no es una respuesta.</summary>
+        /// <summary>
+        /// Buzones que mandan rebotes. Es sólo el respaldo: lo primero que se mira es si el
+        /// correo trae el reporte formal de no entrega, que dice mucho más y no depende de cómo
+        /// se llame el buzón que lo manda.
+        /// </summary>
         private static readonly string[] BuzonesDeRebote = { "mailer-daemon", "postmaster" };
 
         /// <summary>Headers que delatan una respuesta automática. Nunca se baja el cuerpo del correo.</summary>
         private static readonly string[] HeadersDeAutorespuesta = { "Auto-Submitted", "Precedence", "X-Autoreply" };
 
         private readonly ImapSettings _configuracion;
+        private readonly LectorRebote _lectorRebote = new();
 
         public RespuestaService(ImapSettings configuracion)
         {
@@ -85,14 +90,19 @@ namespace notificacion_clientes.Services
                     return Array.Empty<RespuestaDetectada>();
 
                 // Envelope trae From/Subject/Date/InReplyTo; References, la cadena del hilo.
-                // Los headers extra sirven para descartar autorrespuestas.
+                // Los headers extra sirven para descartar autorrespuestas. BodyStructure es la
+                // forma del correo: con ella se reconoce un aviso de no entrega sin bajar nada,
+                // y se sabe qué parte pedir después para los pocos que sí lo son.
                 var resumenes = await carpeta.FetchAsync(
                     uids,
-                    MessageSummaryItems.Envelope | MessageSummaryItems.References,
+                    MessageSummaryItems.UniqueId
+                        | MessageSummaryItems.Envelope
+                        | MessageSummaryItems.References
+                        | MessageSummaryItems.BodyStructure,
                     HeadersDeAutorespuesta,
                     cancelacion);
 
-                return Cruzar(pendientes, resumenes);
+                return await Cruzar(pendientes, resumenes, carpeta, cancelacion);
             }
             finally
             {
@@ -103,10 +113,16 @@ namespace notificacion_clientes.Services
         /// <summary>
         /// Casa cada correo del buzón con el envío que lo provocó. Un envío se cierra con la
         /// primera respuesta que aparece: las siguientes del mismo hilo ya no cambian nada.
+        ///
+        /// Los avisos de no entrega se atienden aparte y antes que nada: traen su propio reporte,
+        /// con el que se sabe de qué envío son sin adivinar, y hay que separar el fracaso
+        /// definitivo del retraso, que no debe cerrar nada.
         /// </summary>
-        private static IReadOnlyList<RespuestaDetectada> Cruzar(
+        private async Task<IReadOnlyList<RespuestaDetectada>> Cruzar(
             IReadOnlyList<EnvioNotificacion> pendientes,
-            IEnumerable<IMessageSummary> resumenes)
+            IEnumerable<IMessageSummary> resumenes,
+            IMailFolder carpeta,
+            CancellationToken cancelacion)
         {
             var porMessageId = new Dictionary<string, EnvioNotificacion>(StringComparer.OrdinalIgnoreCase);
 
@@ -115,9 +131,13 @@ namespace notificacion_clientes.Services
             // al envío original cierra sólo ése.
             var idsDeRecordatorio = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // El token con el que se selló el sobre. Es por donde entra un rebote que trae reporte.
+            var porToken = new Dictionary<string, EnvioNotificacion>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var pendiente in pendientes)
             {
                 porMessageId[Normalizar(pendiente.MessageId)] = pendiente;
+                porToken[pendiente.Token.ToString("N")] = pendiente;
 
                 // Se indexan TODOS los recordatorios que ha recibido, no sólo el último: el
                 // cliente puede contestar el correo de hace tres semanas.
@@ -136,15 +156,63 @@ namespace notificacion_clientes.Services
 
             var detectadas = new Dictionary<int, RespuestaDetectada>();
 
+            // Los retrasos van aparte a propósito. Si compartieran el índice con lo demás, un
+            // aviso de "sigo intentando" del lunes taparía el fracaso definitivo del martes y el
+            // envío se quedaría abierto insistiéndole a una dirección que ya se sabe que no existe.
+            var retrasos = new Dictionary<int, RespuestaDetectada>();
+
             foreach (var resumen in resumenes.OrderBy(r => r.Envelope?.Date ?? DateTimeOffset.MinValue))
             {
                 if (resumen.Envelope is null)
                     continue;
 
+                var fecha = (resumen.Envelope.Date ?? DateTimeOffset.Now).LocalDateTime;
+
+                var informe = LectorRebote.PareceAvisoDeNoEntrega(resumen)
+                    ? await _lectorRebote.Leer(carpeta, resumen, cancelacion)
+                    : null;
+
+                if (informe is not null)
+                {
+                    // Un multipart/report también se usa para avisar que el correo SÍ llegó.
+                    if (informe.Resultado == ResultadoEntrega.Entregada)
+                        continue;
+
+                    var envioDelRebote = CasarRebote(
+                        resumen, informe, fecha, pendientes, porMessageId, porToken, out var criterioRebote);
+
+                    if (envioDelRebote is null)
+                        continue;
+
+                    var destino = informe.EsDefinitivo ? detectadas : retrasos;
+
+                    if (destino.ContainsKey(envioDelRebote.IdEnvio))
+                        continue;
+
+                    destino[envioDelRebote.IdEnvio] = new RespuestaDetectada
+                    {
+                        Envio = envioDelRebote,
+                        // Quién manda el aviso: el servidor, no el cliente. Se conserva porque
+                        // distingue un rechazo del lado del cliente de uno de nuestro propio relay.
+                        DeEmail = PrimerRemitente(resumen) ?? informe.ServidorQueReporta ?? "servidor de correo",
+                        Fecha = fecha,
+                        Asunto = resumen.Envelope.Subject ?? string.Empty,
+                        MessageId = Normalizar(resumen.Envelope.MessageId ?? string.Empty),
+                        Criterio = criterioRebote,
+                        EsRebote = true,
+                        Rebote = informe
+                    };
+
+                    continue;
+                }
+
                 var deEmail = PrimerRemitente(resumen);
                 if (deEmail is null)
                     continue;
 
+                // Respaldo para los servidores que mandan el aviso como texto suelto, sin el
+                // reporte del RFC 3464. Sin reporte no hay forma de saber si el fallo era
+                // definitivo, así que se sigue tratando como tal: es lo que se hacía antes.
                 var esRebote = EsRebote(deEmail);
 
                 // Un "estoy fuera de la oficina" cerraría el pendiente y el cliente nunca recibiría
@@ -165,7 +233,7 @@ namespace notificacion_clientes.Services
                     RespondioARecordatorio = fueRecordatorio ? idCasado : null,
                     Envio = envio,
                     DeEmail = deEmail,
-                    Fecha = (resumen.Envelope.Date ?? DateTimeOffset.Now).LocalDateTime,
+                    Fecha = fecha,
                     Asunto = resumen.Envelope.Subject ?? string.Empty,
                     MessageId = Normalizar(resumen.Envelope.MessageId ?? string.Empty),
                     Criterio = criterio,
@@ -173,7 +241,47 @@ namespace notificacion_clientes.Services
                 };
             }
 
-            return detectadas.Values.ToList();
+            return detectadas.Values.Concat(retrasos.Values).ToList();
+        }
+
+        /// <summary>
+        /// De qué envío es un aviso de no entrega. Tres caminos, del exacto al aproximado:
+        ///
+        ///   token         el aviso devuelve el identificador de sobre con el que salió el correo.
+        ///                 No pasa por ningún header que el servidor del cliente pueda perder.
+        ///   hilo          el aviso referencia nuestro Message-Id. Muchos servidores lo ponen.
+        ///   destinatario  ninguno de los dos, pero la dirección que reporta como fallida es una
+        ///                 de las que se notificaron. Se toma el envío más reciente que la incluya.
+        /// </summary>
+        private static EnvioNotificacion? CasarRebote(
+            IMessageSummary resumen,
+            InformeRebote informe,
+            DateTime fecha,
+            IReadOnlyList<EnvioNotificacion> pendientes,
+            IReadOnlyDictionary<string, EnvioNotificacion> porMessageId,
+            IReadOnlyDictionary<string, EnvioNotificacion> porToken,
+            out CriterioCruce criterio)
+        {
+            criterio = CriterioCruce.EnvelopeId;
+
+            var envelopeId = Normalizar(informe.EnvelopeIdOriginal ?? string.Empty);
+
+            if (envelopeId.Length > 0 && porToken.TryGetValue(envelopeId, out var porEnvelope))
+                return porEnvelope;
+
+            if (CasarPorHilo(resumen, porMessageId, out criterio, out _) is { } porHilo)
+                return porHilo;
+
+            criterio = CriterioCruce.DestinatarioDelRebote;
+
+            if (string.IsNullOrWhiteSpace(informe.Destinatario))
+                return null;
+
+            // Los pendientes vienen ordenados por fecha, así que el último es el más reciente:
+            // si a esa dirección se le mandó varias veces, el aviso es del último correo.
+            return pendientes.LastOrDefault(envio =>
+                envio.FechaEnvio <= fecha
+                && DestinatariosDe(envio).Contains(informe.Destinatario, StringComparer.OrdinalIgnoreCase));
         }
 
         /// <summary>
@@ -248,7 +356,12 @@ namespace notificacion_clientes.Services
         private static string? PrimerRemitente(IMessageSummary resumen) =>
             resumen.Envelope?.From?.Mailboxes?.FirstOrDefault()?.Address;
 
-        /// <summary>Un rebote viene del sistema de correo, no del cliente: la dirección está mal.</summary>
+        /// <summary>
+        /// Un rebote viene del sistema de correo, no del cliente. Reconocerlo por el nombre del
+        /// buzón es impreciso —Exchange Online manda sus avisos desde otras direcciones, y no
+        /// todo lo que sale de postmaster es un rebote—, así que aquí sólo llegan los avisos que
+        /// no traían delivery-status: los que sí lo traen ya se resolvieron con el reporte.
+        /// </summary>
         private static bool EsRebote(string email)
         {
             var local = email.Split('@')[0];

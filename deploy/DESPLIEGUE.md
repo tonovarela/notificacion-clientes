@@ -248,6 +248,22 @@ Deja `Smtp__ModoPrueba=true` durante una o dos corridas programadas completas. A
 el servidor real la conectividad a SQL Server, al API de facturas y al SMTP, revisando los correos
 en el buzón de pruebas, sin riesgo de mandar CFDI equivocados a clientes.
 
+Hay dos señales de la bitácora que **sólo se pueden comprobar contra el servidor real**, y ésta es
+la corrida donde hay que mirarlas:
+
+- **`Aviso rebote: SI/NO`**, en el encabezado de `cobranza-*.log`. Dice si al servidor de salida se
+  le pudo pedir que avise cuando un correo no se entregue —la extensión DSN del RFC 3461—. Con `SI`
+  el correo sale sellado con nuestro token y el rebote que llegue después se reconoce de forma
+  exacta. Con `NO` el envío es igual de válido, pero el rebote habrá que casarlo por el hilo o por
+  la dirección, que son caminos aproximados; el día que un rebote no aparezca por ningún lado, esta
+  línea es lo primero que lo explica.
+- **`Direcciones con error : N`**, en el resumen de las tres bitácoras de envío. Cuenta los
+  contactos que no recibieron el correo. Las direcciones del CRM se revisan **también en modo
+  prueba** —el correo se redirige al buzón de pruebas, pero un dato mal capturado sigue siendo un
+  dato malo—, así que este número ya es real desde la primera corrida. Si sale alto no es una falla
+  del despliegue, es cartera de contactos por depurar; el punto es enterarse aquí y no después del
+  primer reclamo.
+
 ---
 
 ## 3. Permisos del volumen de bitácoras
@@ -460,7 +476,7 @@ El patrón cubre los cuatro prefijos —`envios-`, `revision-vendedores-`, `cobr
 
 ---
 
-## 8. Los dos riesgos a vigilar
+## 8. Los tres riesgos a vigilar
 
 ### `Smtp__ModoPrueba`
 
@@ -470,6 +486,31 @@ nada* y *todos los clientes reciben sus CFDI*.
 La bitácora ya registra en qué modo corrió cada ejecución (`Modo prueba : SI/NO`). Vale la pena
 revisarla después del primer despliegue en modo real, y tenerlo presente al diagnosticar un
 "no llegaron los correos": lo primero que hay que descartar es que la corrida fue en modo prueba.
+
+### Las direcciones que no reciben el correo
+
+Un envío puede quedar en `ENVIADO` y aun así no haberle llegado a un contacto: la dirección estaba
+mal capturada en el CRM, o el servidor la rechazó al entregarla. El correo sí sale para los demás
+contactos del cliente —un contacto malo ya no cancela a los otros—, así que la corrida termina en
+`0` y desde afuera no se ve nada raro. Lo que hay que revisar:
+
+| Señal | Dónde | Qué significa |
+|---|---|---|
+| `Direcciones con error : N` | resumen de `envios-*.log`, `cobranza-*.log` y `revision-vendedores-*.log` | Cuántos contactos se quedaron sin el correo en toda la corrida. |
+| `INVALIDA` | detalle del cliente | Lo capturado en el CRM no es una dirección; ni se intentó. |
+| `RECHAZADA` | detalle del cliente | El servidor la rechazó con un código SMTP, que va tal cual. Un `5xx` señala a la dirección; un `4xx` es temporal. |
+| Columna `Error` de `notif.Envio` | base de datos | La misma nota sobre el renglón `ENVIADO`. Es donde cobranza ve a quién corregirle el dato sin abrir la bitácora. |
+
+Cuando **ningún** contacto del cliente acepta el correo, el envío se registra como fallido y **no
+deja renglón** en `notif.Envio`: la factura se sigue viendo como no notificada y vuelve a entrar en
+la población del martes siguiente. Es a propósito —registrarla la daría por notificada y el cliente
+saldría de la lista sin haber recibido nada—, pero tiene una consecuencia que conviene tener
+presente: ese caso se revisa en la bitácora, no en la tabla.
+
+En `respuestas-*.log` hay una cuarta cuenta, `Entregas retrasadas`, que **no** cambia el estado de
+nada: es el servidor avisando que sigue intentando. Sólo el rebote definitivo cierra el envío como
+`FALLIDO`. Un retraso que reaparece cada corrida contra la misma dirección acaba en fallo días
+después, así que verlo repetirse es la advertencia temprana.
 
 ### El recordatorio se degrada en silencio
 

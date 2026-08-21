@@ -91,6 +91,7 @@ namespace notificacion_clientes.Services
             contenido.AppendLine($"   Vendedores por avisar  : {notificaciones.Count}");
             contenido.AppendLine($"   Correos enviados       : {enviados}");
             contenido.AppendLine($"   Correos fallidos       : {resultados.Count - enviados}");
+            contenido.AppendLine($"   Direcciones con error  : {ContarDireccionesConProblema(resultados)}");
             contenido.AppendLine($"   Facturas pendientes    : {notificaciones.Sum(n => n.TotalFacturas)}");
             contenido.AppendLine($"   Saldo total            : {notificaciones.Sum(n => n.Saldo).ToString("C", Cultura)}");
 
@@ -136,6 +137,7 @@ namespace notificacion_clientes.Services
             contenido.AppendLine($"   Envios revisados       : {resultado.Revisados}");
             contenido.AppendLine($"   Marcados CONTESTADO    : {resultado.Respuestas.Count}");
             contenido.AppendLine($"   Marcados FALLIDO       : {resultado.Rebotes.Count}");
+            contenido.AppendLine($"   Entregas retrasadas    : {resultado.RebotesTemporales.Count} (no cambian de estado)");
 
             if (errorFatal is not null)
             {
@@ -154,7 +156,8 @@ namespace notificacion_clientes.Services
 
         private static void EscribirAcuses(StringBuilder contenido, ResultadoRespuestas resultado)
         {
-            if (resultado.Respuestas.Count == 0 && resultado.Rebotes.Count == 0)
+            if (resultado.Respuestas.Count == 0 && resultado.Rebotes.Count == 0
+                && resultado.RebotesTemporales.Count == 0)
             {
                 contenido.AppendLine();
                 contenido.AppendLine("No se detecto ninguna respuesta nueva en esta corrida.");
@@ -181,15 +184,56 @@ namespace notificacion_clientes.Services
                 contenido.AppendLine($"[{consecutivo:D3}] REBOTE | Cliente {rebote.Envio.Cliente} - {rebote.Envio.RazonSocial}");
                 contenido.AppendLine($"      Envio original : {rebote.Envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)}");
                 contenido.AppendLine($"      Destinatarios  : {rebote.Envio.Destinatarios}");
-                contenido.AppendLine($"      Motivo         : {rebote.Asunto}");
-                contenido.AppendLine("      AVISO          : la direccion no acepto el correo; hay que corregirla en el CRM");
+                EscribirReporteDeRebote(contenido, rebote);
+                contenido.AppendLine($"      Cruce          : {DescribirCriterio(rebote.Criterio)}");
+                contenido.AppendLine(rebote.Rebote?.CulpaDeLaDireccion ?? true
+                    ? "      AVISO          : la direccion no acepto el correo; hay que corregirla en el CRM"
+                    : "      AVISO          : el servidor agoto los reintentos; la direccion puede estar bien");
             }
+
+            // Van al final y sin marcar nada: son avisos de que el correo sigue en camino.
+            foreach (var retraso in resultado.RebotesTemporales)
+            {
+                consecutivo++;
+                contenido.AppendLine();
+                contenido.AppendLine($"[{consecutivo:D3}] RETRASADO | Cliente {retraso.Envio.Cliente} - {retraso.Envio.RazonSocial}");
+                contenido.AppendLine($"      Envio original : {retraso.Envio.FechaEnvio.ToString(FormatoFechaHora, Cultura)}");
+                contenido.AppendLine($"      Destinatarios  : {retraso.Envio.Destinatarios}");
+                EscribirReporteDeRebote(contenido, retraso);
+                contenido.AppendLine($"      Cruce          : {DescribirCriterio(retraso.Criterio)}");
+                contenido.AppendLine("      AVISO          : el servidor sigue intentando; el envio NO se cerro");
+            }
+        }
+
+        /// <summary>
+        /// Lo que dijo el servidor, cuando el aviso trajo el reporte del RFC 3464. Sin reporte
+        /// solo queda el asunto del correo, que es lo unico que habia antes de leerlo.
+        /// </summary>
+        private static void EscribirReporteDeRebote(StringBuilder contenido, RespuestaDetectada rebote)
+        {
+            if (rebote.Rebote is not { } informe)
+            {
+                contenido.AppendLine($"      Motivo         : {rebote.Asunto}");
+                contenido.AppendLine("      Reporte        : el aviso no traia delivery-status; se dio por definitivo");
+                return;
+            }
+
+            contenido.AppendLine($"      Direccion      : {informe.Destinatario ?? "no identificada en el reporte"}");
+            contenido.AppendLine($"      Codigo         : {informe.Estado ?? "sin codigo"}");
+
+            if (!string.IsNullOrWhiteSpace(informe.Diagnostico))
+                contenido.AppendLine($"      Diagnostico    : {informe.Diagnostico}");
+
+            if (!string.IsNullOrWhiteSpace(informe.ServidorQueReporta))
+                contenido.AppendLine($"      Reporta        : {informe.ServidorQueReporta}");
         }
 
         private static string DescribirCriterio(CriterioCruce criterio) => criterio switch
         {
             CriterioCruce.InReplyTo => "In-Reply-To",
             CriterioCruce.References => "References (cadena del hilo)",
+            CriterioCruce.EnvelopeId => "Original-Envelope-Id (exacto)",
+            CriterioCruce.DestinatarioDelRebote => "direccion del reporte (aproximado)",
             _ => "remitente + asunto (aproximado)"
         };
 
@@ -202,7 +246,8 @@ namespace notificacion_clientes.Services
             IReadOnlyList<ResultadoEnvio> resultados,
             DateTime inicio,
             bool esRecordatorio,
-            string? errorFatal = null)
+            string? errorFatal = null,
+            bool? avisoDeNoEntrega = null)
         {
             Directory.CreateDirectory(_directorio);
 
@@ -224,11 +269,13 @@ namespace notificacion_clientes.Services
                 ? " Poblacion   : RECORDATORIO - facturas ya notificadas que siguen sin contestar"
                 : " Poblacion   : PRIMER AVISO - facturas vencidas que no se habian notificado");
             contenido.AppendLine($" Copia oculta: {DescribirCopiaOculta()}");
+            contenido.AppendLine($" Aviso rebote: {DescribirAvisoDeNoEntrega(avisoDeNoEntrega)}");
             contenido.AppendLine(SeparadorTenue);
             contenido.AppendLine(" RESUMEN");
             contenido.AppendLine($"   Clientes por notificar : {cobranza.Notificaciones.Count}");
             contenido.AppendLine($"   Correos enviados       : {enviados}");
             contenido.AppendLine($"   Correos fallidos       : {resultados.Count - enviados}");
+            contenido.AppendLine($"   Direcciones con error  : {ContarDireccionesConProblema(resultados)}");
 
             foreach (var saldo in TotalizarPorMoneda(cobranza.Notificaciones))
                 contenido.AppendLine($"   Saldo vencido {saldo.Moneda,-10}: {FormatearImporte(saldo.Total, saldo.Moneda)}");
@@ -282,6 +329,8 @@ namespace notificacion_clientes.Services
 
                 if (resultado is not null && resultado.CopiaOculta.Count > 0)
                     contenido.AppendLine($"      Copia oculta  : {string.Join(", ", resultado.CopiaOculta)}");
+
+                EscribirDireccionesConProblema(contenido, resultado);
 
                 contenido.AppendLine($"      Agente        : {notificacion.Agente ?? "sin agente en el CRM"}");
                 contenido.AppendLine($"      Saldo vencido : {DescribirSaldos(notificacion)}" +
@@ -348,6 +397,8 @@ namespace notificacion_clientes.Services
                 if (resultado is not null && resultado.CopiaOculta.Count > 0)
                     contenido.AppendLine($"      Copia oculta  : {string.Join(", ", resultado.CopiaOculta)}");
 
+                EscribirDireccionesConProblema(contenido, resultado);
+
                 contenido.AppendLine($"      Cartera       : {notificacion.Clientes.Count} clientes" +
                                      $" | {notificacion.TotalFacturas} facturas" +
                                      $" | Saldo {notificacion.Saldo.ToString("C", Cultura)}" +
@@ -397,6 +448,7 @@ namespace notificacion_clientes.Services
             contenido.AppendLine($"   Clientes por notificar : {notificaciones.Count}");
             contenido.AppendLine($"   Correos enviados       : {enviados}");
             contenido.AppendLine($"   Correos fallidos       : {fallidos}");
+            contenido.AppendLine($"   Direcciones con error  : {ContarDireccionesConProblema(resultados)}");
             contenido.AppendLine($"   Facturas incluidas     : {notificaciones.Sum(n => n.Documentos.Count)}");
             contenido.AppendLine($"   Importe total          : {notificaciones.Sum(n => n.Total).ToString("C", Cultura)}");
 
@@ -444,6 +496,8 @@ namespace notificacion_clientes.Services
                 if (resultado is not null && resultado.CopiaOculta.Count > 0)
                     contenido.AppendLine($"      Copia oculta  : {string.Join(", ", resultado.CopiaOculta)}");
 
+                EscribirDireccionesConProblema(contenido, resultado);
+
                 contenido.AppendLine($"      Contactos CRM : {DescribirContactos(notificacion)}");
                 contenido.AppendLine($"      Importes      : Subtotal {notificacion.SubTotal.ToString("C", Cultura)}" +
                                      $" | IVA {notificacion.Iva.ToString("C", Cultura)}" +
@@ -463,6 +517,41 @@ namespace notificacion_clientes.Services
                 }
             }
         }
+
+        /// <summary>
+        /// Las direcciones que no recibieron el correo, aunque el envio figure como ENVIADO.
+        /// Es lo unico de la bitacora que exige que alguien haga algo: corregir el dato en el CRM.
+        /// </summary>
+        private static void EscribirDireccionesConProblema(StringBuilder contenido, ResultadoEnvio? resultado)
+        {
+            if (resultado is null)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(resultado.AcuseServidor))
+                contenido.AppendLine($"      Acuse servidor: {resultado.AcuseServidor}");
+
+            foreach (var invalida in resultado.DireccionesInvalidas)
+                contenido.AppendLine($"      INVALIDA      : '{invalida}' no es una direccion de correo; se omitio - corregir en el CRM");
+
+            foreach (var rechazado in resultado.Rechazados)
+                contenido.AppendLine($"      RECHAZADA     : {rechazado.Email} - el servidor respondio {rechazado.Codigo} {rechazado.Respuesta}"
+                                     + (rechazado.EsDefinitivo ? " - corregir en el CRM" : " - rechazo temporal"));
+        }
+
+        /// <summary>Cuantas direcciones se quedaron sin recibir el correo en toda la corrida.</summary>
+        private static int ContarDireccionesConProblema(IEnumerable<ResultadoEnvio> resultados) =>
+            resultados.Sum(r => r.DireccionesInvalidas.Count + r.Rechazados.Count);
+
+        /// <summary>
+        /// Si al servidor se le pudo pedir que avise cuando un correo no se entregue. Queda en la
+        /// bitacora porque explica de antemano por que un rebote podria no reconocerse despues.
+        /// </summary>
+        private static string DescribirAvisoDeNoEntrega(bool? soportado) => soportado switch
+        {
+            true => "SI - se pidio al servidor aviso de no entrega y se sello el sobre con el token",
+            false => "NO - el servidor no soporta DSN; un rebote habra que casarlo por hilo o direccion",
+            _ => "no aplica - no se llego a conectar con el servidor"
+        };
 
         private string DescribirCopiaOculta() =>
             _smtp.CopiaOculta.Count == 0

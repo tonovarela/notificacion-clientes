@@ -114,7 +114,10 @@ namespace notificacion_clientes.DAO
                 envio.ModoPrueba,
                 envio.FechaEnvio,
                 Estado = NombreEstado[envio.Estado],
-                envio.Error
+                // La columna es NVARCHAR(1000) y aquí ya no cabe sólo un mensaje de excepción:
+                // con varios contactos rechazados la nota crece, y pasarse tumbaría el INSERT
+                // justo cuando hay algo que reportar.
+                Error = envio.Error is null ? null : Recortar(envio.Error, 1000)
             }, transaccion);
 
             if (envio.Facturas.Count > 0)
@@ -256,7 +259,10 @@ namespace notificacion_clientes.DAO
             await conexion.ExecuteAsync(sql, new
             {
                 rebote.Envio.IdEnvio,
-                Error = Recortar($"Rebote de {rebote.DeEmail}: {rebote.Asunto}", 1000),
+                // Con reporte formal se guarda lo que dijo el servidor —direccion, codigo y
+                // diagnostico—, que es lo que cobranza necesita para corregir el CRM. Sin
+                // reporte no queda mas que el asunto del aviso, como antes.
+                Error = Recortar(DescribirRebote(rebote), 1000),
                 rebote.Fecha,
                 rebote.MessageId
             });
@@ -326,6 +332,12 @@ namespace notificacion_clientes.DAO
             };
 
         /// <summary>Las columnas tienen tope y un asunto de correo puede traer cualquier cosa.</summary>
+        /// <summary>Lo que se guarda en Error cuando un envio se cierra por rebote.</summary>
+        private static string DescribirRebote(RespuestaDetectada rebote) =>
+            rebote.Rebote is { } informe
+                ? $"Rebote {(informe.CulpaDeLaDireccion ? "definitivo" : "por reintentos agotados")}: {informe}"
+                : $"Rebote de {rebote.DeEmail}: {rebote.Asunto}";
+
         private static string Recortar(string valor, int maximo) =>
             valor.Length <= maximo ? valor : valor[..maximo];
     }
