@@ -159,7 +159,7 @@ namespace notificacion_clientes.DAO
                             WHERE v.Mov       = 'Factura Electronica'
                             AND fn.MovId is null                              
                             AND v.Categoria = 'VENCIDAS'    
-                            and v.Cliente= '10040'                            
+                            --and v.Cliente= '10040'                            
                             AND x.email is not null
                             ORDER BY v.Cliente, v.Vencimiento;";
             using var conexion = new SqlConnection(_sqlConexion);
@@ -209,8 +209,8 @@ namespace notificacion_clientes.DAO
                             AND fn.MovId is not null                              
                             AND v.Categoria = 'VENCIDAS'                              
                             AND x.email is not null
-                            and v.Cliente= '10040'
-                            and v.MovID not in ('CFDI66501','CFDI66502')
+                            --and v.Cliente= '10040'
+                            --and v.MovID not in ('CFDI66501','CFDI66502')
                             ORDER BY v.Cliente, v.Vencimiento;
                             ";
             using var conexion = new SqlConnection(_sqlConexion);
