@@ -190,6 +190,30 @@ CREATE INDEX IX_notif_EnvioFactura_MovID ON notif.EnvioFactura (MovID) INCLUDE (
 GO
 
 /*
+    Cuando termino bien la ultima corrida de --respuestas. Es el piso de la ventana de busqueda
+    en el buzon.
+
+    Sin el, la ventana arranca en el ultimo contacto con el cliente, que con la cadencia semanal
+    de cobranza son dias. Si --respuestas deja de correr una semana, una respuesta que llego
+    durante el paro y es anterior al ultimo recordatorio caeria fuera del DeliveredAfter de la
+    siguiente corrida y no se recuperaria nunca. Con el piso, la primera corrida que vuelva
+    barre desde donde se quedo la ultima que si termino.
+
+    Guarda el INICIO de la corrida, no su fin: lo que llego mientras esa corrida leia el buzon
+    pudo no alcanzar a verse, y el siguiente barrido tiene que volver a cubrirlo.
+
+    Un solo renglon. El CHECK lo garantiza: con dos, la consulta tendria que decidir cual es el
+    piso, que es justo la ambiguedad que se quiere evitar.
+*/
+IF OBJECT_ID('notif.Conciliacion') IS NULL
+CREATE TABLE notif.Conciliacion (
+    Id     BIT          NOT NULL CONSTRAINT PK_notif_Conciliacion PRIMARY KEY
+                                 CONSTRAINT CK_notif_Conciliacion_UnRenglon CHECK (Id = 1),
+    Inicio DATETIME2(0) NOT NULL
+);
+GO
+
+/*
     Permisos. La aplicacion se conecta con Database=Lito en la cadena de conexion y llega aqui
     por nombre de tres partes (CorreosCXC.notif.Envio), asi que su login necesita un usuario en
     esta base. Ajusta el nombre del login al real antes de descomentar.

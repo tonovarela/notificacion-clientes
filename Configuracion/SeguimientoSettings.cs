@@ -23,6 +23,11 @@ namespace notificacion_clientes.Configuracion
         /// —eso se fue con el cierre por vigencia—, así que un renglón que se quede en ENVIADO
         /// anclaría la ventana para siempre. Vale más perder una respuesta muy vieja que degradar
         /// la corrida diaria.
+        ///
+        /// Se cuenta desde el último correo que le mandamos al cliente, no desde el primero, así
+        /// que 30 días alcanzan para el moroso al que se lleva medio año insistiendo: mientras siga
+        /// recibiendo su recordatorio semanal, nunca sale de la ventana. Subirlo sólo hace falta si
+        /// se deja de insistir por más de ese plazo y aun así se espera respuesta.
         /// </summary>
         public required int DiasVentanaMaxima { get; init; }
 

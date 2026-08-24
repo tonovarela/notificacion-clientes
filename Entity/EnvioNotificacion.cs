@@ -107,6 +107,18 @@ namespace notificacion_clientes.Entity
         public IReadOnlyList<string> RecordatorioMessageIds { get; init; } = Array.Empty<string>();
 
         /// <summary>
+        /// Cuándo salió el último recordatorio que cubrió a este envío. Null si nunca se le ha
+        /// insistido, en cuyo caso el mensaje más reciente es el envío mismo y la fecha que cuenta
+        /// es <see cref="FechaEnvio"/>.
+        ///
+        /// Es lo que decide si el envío sigue dentro de la ventana de conciliación. Medirla contra
+        /// FechaEnvio dejaba fuera justo a los morosos más viejos: un envío de hace meses al que se
+        /// le sigue insistiendo cada viernes no entraba al cruce, así que su respuesta al
+        /// recordatorio de ayer no se detectaba y se le volvía a escribir.
+        /// </summary>
+        public DateTime? FechaUltimoRecordatorio { get; init; }
+
+        /// <summary>
         /// Las facturas que iban en ese correo. Es lo que hace posible el recordatorio: la consulta
         /// de cobranza sin contestar cruza contra estos renglones para saber qué ya se reclamó.
         /// </summary>

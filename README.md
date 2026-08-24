@@ -89,9 +89,17 @@ siguen en `SeguimientoDAO` por si hacen falta.
 - **Un "estoy fuera de la oficina" no cuenta como respuesta.** Se descartan por `Auto-Submitted`,
   `Precedence` y `X-Autoreply`. Ante la duda se insiste: un correo de más es más barato que un
   cliente que se queda sin su aviso.
-- **`DiasVentanaMaxima` es el tope duro** de cuántos días atrás se lee el buzón. Importa más que
-  antes: como nada cierra los envíos que nadie contesta, un renglón atorado en `ENVIADO` anclaría
-  la ventana para siempre y la búsqueda crecería sin límite.
+- **`DiasVentanaMaxima` es el tope duro** de cuántos días atrás se lee el buzón, y se cuenta desde
+  el **último** correo que se le mandó al cliente —su recordatorio más reciente—, no desde el primer
+  aviso. La búsqueda real suele quedarse muy por debajo del tope: arranca en el último contacto más
+  viejo de la lista, que con la cadencia semanal es cosa de días.
+- **Un paro del cron se recupera solo.** `notif.Conciliacion` guarda cuándo arrancó la última corrida
+  que terminó bien, y la búsqueda nunca empieza después de ahí. El piso sólo avanza si la corrida no
+  tuvo error fatal, así que un buzón que no autenticó deja el hueco para la siguiente. `DiasVentanaMaxima`
+  le sigue ganando: un paro más largo que eso sí pierde lo más viejo. Por eso 30 días alcanzan para el moroso al que se lleva meses insistiendo: mientras siga
+  recibiendo recordatorio, no sale de la ventana. Importa más que antes: como nada cierra los envíos
+  que nadie contesta, un renglón atorado en `ENVIADO` anclaría la ventana para siempre y la búsqueda
+  crecería sin límite.
 - **Los envíos en modo prueba sí se concilian.** El correo salió, sólo que al buzón de pruebas, y
   contestarlo desde ahí es la única forma de comprobar que el cruce funciona antes de que le
   llegue nada a un cliente.

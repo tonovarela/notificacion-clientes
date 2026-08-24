@@ -20,6 +20,10 @@ publish/
 # Previsualizaciones generadas por --previsualizar
 previsualizacion-*.html
 
+# Estado de corrida del DAO de archivo: el piso de la ventana de conciliación. Es por entorno,
+# no un fixture como envios.json, y lo reescribe cada corrida de --respuestas.
+conciliacion.json
+
 # Bitácoras de ejecución
 logs/
 Logs/

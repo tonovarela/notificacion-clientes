@@ -32,6 +32,8 @@ namespace notificacion_clientes.DAO
 
         private const string TablaEnvioRecordatorio = EsquemaSeguimiento + ".EnvioRecordatorio";
 
+        private const string TablaConciliacion = EsquemaSeguimiento + ".Conciliacion";
+
         /// <summary>
         /// El estado viaja como VARCHAR para que la tabla se pueda leer desde el ERP sin decodificar
         /// nada. Dapper no convierte string a enum por nombre, así que la traducción es explícita
@@ -144,19 +146,29 @@ namespace notificacion_clientes.DAO
         /// salió, sólo que al buzón de pruebas, y contestarlo desde ahí es la única forma de
         /// comprobar que el cruce funciona antes de que le llegue nada a un cliente.
         ///
-        /// <paramref name="desde"/> es el tope duro de la ventana. Sin él la búsqueda crecería sin
-        /// límite: nada cierra por vigencia los envíos que nadie contesta, así que un renglón
-        /// atorado en ENVIADO ancla la ventana para siempre.
+        /// <paramref name="desde"/> se compara contra el mensaje MÁS RECIENTE del envío: su último
+        /// recordatorio si lo tiene, y si no su propia FechaEnvio. Medirlo sólo contra FechaEnvio
+        /// dejaba fuera a los morosos más viejos —los que más recordatorios reciben—, así que su
+        /// respuesta al correo del viernes no casaba con nada y el viernes siguiente se les volvía
+        /// a insistir.
+        ///
+        /// Sigue siendo el tope duro de la ventana. Sin él la búsqueda crecería sin límite: nada
+        /// cierra por vigencia los envíos que nadie contesta, así que un renglón atorado en ENVIADO
+        /// ancla la ventana para siempre.
         /// </summary>
         public async Task<IReadOnlyList<EnvioNotificacion>> ObtenerEnviosSinRespuesta(DateTime desde)
         {
             const string sql = $@"
                 SELECT IdEnvio, Cliente, RazonSocial, Proceso, MessageId, Token, IdEnvioOriginal, Intento,
                        Asunto, Destinatarios, ModoPrueba, FechaEnvio, Estado, Error
-                FROM {TablaEnvio}
-                WHERE Estado IN ('ENVIADO','RECORDADO')
-                  AND FechaEnvio >= @Desde
-                ORDER BY FechaEnvio;";
+                FROM {TablaEnvio} e
+                WHERE e.Estado IN ('ENVIADO','RECORDADO')
+                  AND (e.FechaEnvio >= @Desde
+                       OR EXISTS (SELECT 1
+                                  FROM {TablaEnvioRecordatorio} r
+                                  WHERE r.IdEnvio    = e.IdEnvio
+                                    AND r.FechaEnvio >= @Desde))
+                ORDER BY e.FechaEnvio;";
 
             using var conexion = new SqlConnection(_sqlConexion);
             var filas = (await conexion.QueryAsync(sql, new { Desde = desde })).ToList();
@@ -167,7 +179,9 @@ namespace notificacion_clientes.DAO
             var recordatorios = await ObtenerRecordatorios(conexion, filas.Select(f => (int)f.IdEnvio).ToList());
 
             return filas
-                .Select(f => (EnvioNotificacion)Mapear(f, recordatorios.GetValueOrDefault((int)f.IdEnvio) ?? new List<string>()))
+                .Select(f => (EnvioNotificacion)Mapear(
+                    f,
+                    recordatorios.GetValueOrDefault((int)f.IdEnvio) ?? new List<(string, DateTime)>()))
                 .ToList();
         }
 
@@ -293,13 +307,41 @@ namespace notificacion_clientes.DAO
             await conexion.ExecuteAsync(sql, new { IdEnvio = idEnvio });
         }
 
+        /// <inheritdoc />
+        public async Task<DateTime?> ObtenerUltimaConciliacion()
+        {
+            const string sql = $"SELECT Inicio FROM {TablaConciliacion} WHERE Id = 1;";
+
+            using var conexion = new SqlConnection(_sqlConexion);
+
+            return await conexion.QuerySingleOrDefaultAsync<DateTime?>(sql);
+        }
+
+        /// <inheritdoc />
+        public async Task RegistrarConciliacion(DateTime inicio)
+        {
+            // El UPDATE se condiciona a que la fecha avance: dos corridas encimadas —el crontab
+            // dispara cuatro al día— no deben poder retroceder el piso y reabrir el hueco que
+            // este renglón existe para tapar.
+            const string sql = $@"
+                UPDATE {TablaConciliacion}
+                SET    Inicio = @Inicio
+                WHERE  Id = 1 AND Inicio < @Inicio;
+
+                IF NOT EXISTS (SELECT 1 FROM {TablaConciliacion} WHERE Id = 1)
+                    INSERT INTO {TablaConciliacion} (Id, Inicio) VALUES (1, @Inicio);";
+
+            using var conexion = new SqlConnection(_sqlConexion);
+            await conexion.ExecuteAsync(sql, new { Inicio = inicio });
+        }
+
         /// <summary>Los recordatorios de varios envíos en un solo viaje, agrupados por IdEnvio.</summary>
-        private static async Task<Dictionary<int, List<string>>> ObtenerRecordatorios(
+        private static async Task<Dictionary<int, List<(string MessageId, DateTime Fecha)>>> ObtenerRecordatorios(
             SqlConnection conexion,
             IReadOnlyCollection<int> idsEnvio)
         {
             const string sql = $@"
-                SELECT IdEnvio, MessageId
+                SELECT IdEnvio, MessageId, FechaEnvio
                 FROM {TablaEnvioRecordatorio}
                 WHERE IdEnvio IN @IdsEnvio
                 ORDER BY FechaEnvio;";
@@ -308,10 +350,14 @@ namespace notificacion_clientes.DAO
 
             return filas
                 .GroupBy(f => (int)f.IdEnvio)
-                .ToDictionary(g => g.Key, g => g.Select(f => (string)f.MessageId).ToList());
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Select(f => ((string)f.MessageId, (DateTime)f.FechaEnvio)).ToList());
         }
 
-        private static EnvioNotificacion Mapear(dynamic fila, IReadOnlyList<string> recordatorios) =>
+        private static EnvioNotificacion Mapear(
+            dynamic fila,
+            IReadOnlyList<(string MessageId, DateTime Fecha)> recordatorios) =>
             new()
             {
                 IdEnvio = (int)fila.IdEnvio,
@@ -328,7 +374,10 @@ namespace notificacion_clientes.DAO
                 FechaEnvio = (DateTime)fila.FechaEnvio,
                 Estado = EstadoPorNombre[(string)fila.Estado],
                 Error = (string?)fila.Error,
-                RecordatorioMessageIds = recordatorios
+                RecordatorioMessageIds = recordatorios.Select(r => r.MessageId).ToList(),
+                FechaUltimoRecordatorio = recordatorios.Count == 0
+                    ? null
+                    : recordatorios.Max(r => r.Fecha)
             };
 
         /// <summary>Las columnas tienen tope y un asunto de correo puede traer cualquier cosa.</summary>

@@ -21,7 +21,8 @@ namespace notificacion_clientes.DAO
 
         /// <summary>
         /// Envíos que todavía esperan respuesta, para cruzarlos contra el buzón.
-        /// <paramref name="desde"/> acota cuánto hacia atrás se mira.
+        /// <paramref name="desde"/> acota cuánto hacia atrás se mira, contado desde el mensaje más
+        /// reciente del envío —su último recordatorio— y no desde el primer aviso.
         /// </summary>
         Task<IReadOnlyList<EnvioNotificacion>> ObtenerEnviosSinRespuesta(DateTime desde);
 
@@ -39,5 +40,18 @@ namespace notificacion_clientes.DAO
         Task MarcarRecordado(int idEnvio);
 
         Task MarcarSinRespuesta(int idEnvio);
+
+        /// <summary>
+        /// Cuándo arrancó la última corrida de --respuestas que terminó bien, o null si nunca ha
+        /// terminado ninguna. Es el piso de la ventana de búsqueda en el buzón: sin él, un paro del
+        /// cron deja un hueco que no se recupera solo.
+        /// </summary>
+        Task<DateTime?> ObtenerUltimaConciliacion();
+
+        /// <summary>
+        /// Mueve el piso. Se llama sólo cuando la corrida terminó sin error fatal: si el buzón no
+        /// se pudo leer, el piso tiene que quedarse donde está para que la siguiente lo cubra.
+        /// </summary>
+        Task RegistrarConciliacion(DateTime inicio);
     }
 }

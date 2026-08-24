@@ -48,26 +48,55 @@ namespace notificacion_clientes.Services
         /// <summary>
         /// Busca en el buzón las respuestas a los envíos indicados.
         ///
-        /// Sólo se leen los correos posteriores al envío pendiente más viejo: más atrás no puede
-        /// haber nada que conciliar, y recorrer el buzón entero de cobranza cada mañana sería
-        /// caro y lento sin ganar nada.
+        /// Sólo se leen los correos posteriores al último contacto más viejo de la lista: nadie
+        /// puede contestar antes de que le escribamos, y recorrer el buzón entero de cobranza cada
+        /// mañana sería caro y lento sin ganar nada.
+        ///
+        /// <paramref name="ultimaConciliacion"/> es el piso de esa ventana: nunca se arranca después
+        /// de donde se quedó la última corrida que terminó bien, para que un paro del cron no deje
+        /// un hueco permanente.
         /// </summary>
         public async Task<IReadOnlyList<RespuestaDetectada>> Conciliar(
             IReadOnlyList<EnvioNotificacion> pendientes,
             int diasVentanaMaxima,
+            DateTime? ultimaConciliacion,
             CancellationToken cancelacion = default)
         {
             if (pendientes.Count == 0)
                 return Array.Empty<RespuestaDetectada>();
 
+            // La ventana se mide contra el mensaje MÁS RECIENTE de cada envío —su último
+            // recordatorio, o el envío mismo si nunca se le insistió— y de ésos se toma el más
+            // viejo. Contra FechaEnvio, un solo renglón de hace meses estiraba la búsqueda hasta el
+            // tope todas las mañanas aunque el último correo hubiera salido anteayer.
+            //
+            // Se compara con FechaEnvio en vez de sustituirla: el envío que acaba de salir todavía
+            // no tiene recordatorio.
+            //
             // Un día de colchón: la fecha de entrega del servidor y la nuestra pueden no coincidir
             // por zona horaria, y perder una respuesta cuesta insistirle a quien ya contestó.
-            var desdeElPendiente = pendientes.Min(p => p.FechaEnvio).Date.AddDays(-1);
+            var desdeElPendiente = pendientes
+                .Min(p => p.FechaUltimoRecordatorio is { } recordatorio && recordatorio > p.FechaEnvio
+                    ? recordatorio
+                    : p.FechaEnvio)
+                .Date.AddDays(-1);
 
-            // Tope duro. Si un envío se quedara abierto por error, sin esto la búsqueda crecería
-            // sin límite hasta descargar el buzón entero en cada corrida.
+            // El piso: si la corrida anterior que terminó bien arrancó antes que eso, se retrocede
+            // hasta ella. Sin esto, un paro del cron de más de una semana pierde para siempre las
+            // respuestas que llegaron durante el paro y son anteriores al último recordatorio.
+            //
+            // Mismo colchón de un día, y por lo mismo: aquí se compara nuestro reloj contra las
+            // fechas de entrega del servidor de correo.
+            var piso = ultimaConciliacion?.Date.AddDays(-1);
+            var arranque = piso is { } sinConciliar && sinConciliar < desdeElPendiente
+                ? sinConciliar
+                : desdeElPendiente;
+
+            // Tope duro, y gana sobre el piso. Si el cron estuvo caído más de DiasVentanaMaxima, se
+            // pierde lo más viejo a propósito: vale más eso que descargar el buzón entero. De todas
+            // formas esos envíos ya no vienen en la lista, que se arma con el mismo tope.
             var tope = DateTime.Today.AddDays(-diasVentanaMaxima);
-            var desde = desdeElPendiente < tope ? tope : desdeElPendiente;
+            var desde = arranque < tope ? tope : arranque;
 
             using var imap = new ImapClient();
 

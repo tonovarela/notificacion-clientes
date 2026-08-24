@@ -60,6 +60,7 @@ namespace notificacion_clientes.DAO
                 RespuestaMessageId = envio.RespuestaMessageId,
                 RespuestaAsunto = envio.RespuestaAsunto,
                 RecordatorioMessageIds = envio.RecordatorioMessageIds,
+                FechaUltimoRecordatorio = envio.FechaUltimoRecordatorio,
                 Facturas = envio.Facturas
             });
 
@@ -74,7 +75,7 @@ namespace notificacion_clientes.DAO
 
             return envios
                 .Where(e => (e.Estado == EstadoEnvio.Enviado || e.Estado == EstadoEnvio.Recordado)
-                            && e.FechaEnvio >= desde)
+                            && (e.FechaEnvio >= desde || e.FechaUltimoRecordatorio >= desde))
                 .OrderBy(e => e.FechaEnvio)
                 .ToList();
         }
@@ -108,7 +109,10 @@ namespace notificacion_clientes.DAO
                         return e;
 
                     marcados++;
-                    return Clonar(e, recordatorioMessageIds: e.RecordatorioMessageIds.Append(messageId).ToList());
+                    return Clonar(
+                        e,
+                        recordatorioMessageIds: e.RecordatorioMessageIds.Append(messageId).ToList(),
+                        fechaUltimoRecordatorio: fechaEnvio);
                 })
                 .ToList();
 
@@ -188,7 +192,8 @@ namespace notificacion_clientes.DAO
             string? respondioEmail = null,
             string? respuestaMessageId = null,
             string? respuestaAsunto = null,
-            IReadOnlyList<string>? recordatorioMessageIds = null) =>
+            IReadOnlyList<string>? recordatorioMessageIds = null,
+            DateTime? fechaUltimoRecordatorio = null) =>
             new()
             {
                 IdEnvio = origen.IdEnvio,
@@ -210,11 +215,50 @@ namespace notificacion_clientes.DAO
                 RespuestaMessageId = respuestaMessageId ?? origen.RespuestaMessageId,
                 RespuestaAsunto = respuestaAsunto ?? origen.RespuestaAsunto,
                 RecordatorioMessageIds = recordatorioMessageIds ?? origen.RecordatorioMessageIds,
+                FechaUltimoRecordatorio = fechaUltimoRecordatorio ?? origen.FechaUltimoRecordatorio,
                 Facturas = origen.Facturas
             };
 
         private static string Recortar(string valor, int maximo) =>
             valor.Length <= maximo ? valor : valor[..maximo];
+
+        /// <inheritdoc />
+        ///
+        /// Vive en un archivo aparte y no dentro de envios.json: ese archivo es una lista de
+        /// envíos, y meterle un escalar obligaría a cambiar su forma y a reescribir los escenarios
+        /// que ya existen en Datos/escenarios.
+        public async Task<DateTime?> ObtenerUltimaConciliacion()
+        {
+            if (!File.Exists(RutaConciliacion))
+                return null;
+
+            await using var flujo = File.OpenRead(RutaConciliacion);
+            var estado = await JsonSerializer.DeserializeAsync<EstadoConciliacion>(flujo, OpcionesJson);
+
+            return estado?.Inicio;
+        }
+
+        /// <inheritdoc />
+        public async Task RegistrarConciliacion(DateTime inicio)
+        {
+            // Igual que en SQL, el piso sólo avanza: una corrida encimada no debe hacerlo retroceder.
+            if (await ObtenerUltimaConciliacion() is { } actual && actual >= inicio)
+                return;
+
+            var directorio = Path.GetDirectoryName(RutaConciliacion);
+            if (!string.IsNullOrEmpty(directorio))
+                Directory.CreateDirectory(directorio);
+
+            await using var flujo = File.Create(RutaConciliacion);
+            await JsonSerializer.SerializeAsync(flujo, new EstadoConciliacion(inicio), OpcionesJson);
+        }
+
+        private string RutaConciliacion =>
+            Path.Combine(Path.GetDirectoryName(_rutaArchivo) ?? ".", "conciliacion.json");
+
+        /// <summary>Todo lo que guarda conciliacion.json. Es un escalar, pero envuelto para que el
+        /// archivo se lea solo y quepa un campo más sin cambiarle la forma.</summary>
+        private sealed record EstadoConciliacion(DateTime Inicio);
 
         private async Task<List<EnvioNotificacion>> Leer()
         {

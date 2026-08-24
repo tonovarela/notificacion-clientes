@@ -39,6 +39,10 @@ namespace notificacion_clientes.Comandos
             try
             {
                 resultado = await Conciliar();
+
+                // El piso sólo avanza cuando la corrida completa terminó bien. Si el buzón no se
+                // pudo leer, se queda donde estaba y la siguiente corrida cubre este hueco.
+                await _dep.SeguimientoDAO.RegistrarConciliacion(inicio);
             }
             catch (Exception ex)
             {
@@ -64,7 +68,8 @@ namespace notificacion_clientes.Comandos
         private async Task<ResultadoRespuestas> Conciliar()
         {
             // El mismo tope que usa la búsqueda IMAP: no tiene caso traer envíos cuya respuesta
-            // ya no se va a buscar en el buzón.
+            // ya no se va a buscar en el buzón. El DAO lo compara contra el último recordatorio,
+            // no contra el primer aviso, para no perder al moroso al que se le sigue insistiendo.
             var ventana = DateTime.Today.AddDays(-_dep.Settings.Seguimiento.DiasVentanaMaxima);
 
             var abiertos = await _dep.SeguimientoDAO.ObtenerEnviosSinRespuesta(ventana);
@@ -78,7 +83,12 @@ namespace notificacion_clientes.Comandos
 
             Console.WriteLine($"Revisando el buzón desde {ventana:dd/MM/yyyy} contra {abiertos.Count} envíos abiertos...");
 
-            var detectadas = await _dep.Respuesta.Conciliar(abiertos, _dep.Settings.Seguimiento.DiasVentanaMaxima);
+            var ultimaConciliacion = await _dep.SeguimientoDAO.ObtenerUltimaConciliacion();
+
+            var detectadas = await _dep.Respuesta.Conciliar(
+                abiertos,
+                _dep.Settings.Seguimiento.DiasVentanaMaxima,
+                ultimaConciliacion);
 
             var respuestas = detectadas.Where(d => !d.EsRebote).ToList();
 

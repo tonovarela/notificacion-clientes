@@ -18,7 +18,7 @@ Archivos de esta carpeta:
 | Archivo | Destino en el servidor | Qué hace |
 |---|---|---|
 | `run.sh` | `/home/docker/notificacion-clientes/run.sh` | Levanta el contenedor, detecta solapamiento, corta la corrida colgada y alerta si falla. Recibe el proceso como argumento. |
-| `sql/001-seguimiento.sql` | se corre en SQL Server | Crea la base `CorreosCXC` y el esquema `notif` del seguimiento. Idempotente. Sólo hace falta si se enciende `Seguimiento__Habilitado`. |
+| `sql/001-seguimiento.sql` | se corre en SQL Server | Crea la base `CorreosCXC` y el esquema `notif` del seguimiento. Idempotente. Sólo hace falta si se enciende `Seguimiento__Habilitado`. **Vuelve a correrlo al desplegar esta versión:** agrega `notif.Conciliacion`, y sin esa tabla `--respuestas` truena con *invalid object name*. |
 
 El schedule no es un archivo del repositorio: son cuatro líneas en el crontab del usuario
 `notificaciones`, que se transcriben en el punto 4.
@@ -534,11 +534,24 @@ Si el eslabón de en medio deja de correr —se comentó la línea del crontab, 
 autenticar, el seguimiento se apagó—, **el viernes no falla**: le manda el recordatorio también a
 quien ya había contestado el martes. El daño es reputacional y no deja error.
 
-**Pendiente conocido:** la ventana de búsqueda se mide contra `Envio.FechaEnvio`, que es la del
-primer aviso. Un cliente al que se le lleva insistiendo más de `DiasVentanaMaxima` días queda fuera
-del cruce, así que **su respuesta al recordatorio de ayer no se detecta** — y son justo los morosos
-más viejos, los que más recordatorios reciben. El arreglo es comparar contra la fecha más reciente
-entre el envío y su último recordatorio, que ya se guarda en `notif.EnvioRecordatorio.FechaEnvio`.
+La ventana de búsqueda se mide contra el mensaje más reciente del envío: su último recordatorio en
+`notif.EnvioRecordatorio.FechaEnvio`, o `Envio.FechaEnvio` si nunca se le insistió. Un cliente al que
+se le lleva reclamando meses sigue dentro del cruce mientras siga recibiendo su recordatorio, así que
+`DiasVentanaMaxima` en 30 no lo deja fuera.
+
+La búsqueda IMAP arranca en esa misma fecha: el último contacto más viejo de la lista, menos un día
+de colchón, y nunca más atrás del tope. Con la cadencia semanal de cobranza eso suele ser una semana
+de buzón en vez de los 30 días completos.
+
+Esa ventana tiene un piso: `notif.Conciliacion` guarda cuándo arrancó la última corrida que terminó
+bien, y la búsqueda nunca empieza después de ahí. Así un paro del cron se recupera solo — la primera
+corrida que vuelva barre desde donde se quedó la última que sí terminó, en vez de perder para siempre
+las respuestas que llegaron durante el paro.
+
+El piso se mueve **sólo** si la corrida completa terminó sin error fatal: si IMAP no autenticó, se
+queda donde estaba a propósito. Y el tope de `DiasVentanaMaxima` le gana: un paro de más de 30 días
+sí pierde lo más viejo, que es el mismo trato de siempre —vale más eso que descargar el buzón
+entero—, y de todas formas esos envíos ya no vienen en la lista de abiertos.
 
 Peor que antes en un punto: ya nada cierra por vigencia los envíos que nadie contesta, así que un
 renglón atorado en `ENVIADO` se queda ahí. `Seguimiento__DiasVentanaMaxima` es lo único que evita
