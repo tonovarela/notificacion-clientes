@@ -70,7 +70,7 @@ docker buildx create --use --name lito-builder
 # Cada versión
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t tonovarela/notificacion-clientes:1.0.0 \
+  -t tonovarela/notificacion-clientes:1.0.3 \
   -t tonovarela/notificacion-clientes:latest \
   --push .
 ```
@@ -84,7 +84,7 @@ expone el argumento `MODO_PRUEBA` para invertirlos sin editar el archivo:
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --build-arg MODO_PRUEBA=true \
-  -t tonovarela/notificacion-clientes:1.0.2 \
+  -t tonovarela/notificacion-clientes:1.0.3-prueba \
   --push .
 ```
 
@@ -103,7 +103,7 @@ servidor: el `--env-file` pisa lo que trae la imagen.
 ### Versionado
 
 Etiqueta siempre con versión semántica **además** de `latest`. En producción el schedule apunta a
-la versión fija (`:1.0.0`), nunca a `:latest`.
+la versión fija (`:1.0.3`), nunca a `:latest`.
 
 El motivo es concreto: si el schedule usa `latest` y alguien sube una imagen con un error un
 martes, el proceso de facturación del miércoles falla sin que nadie haya tocado el servidor, y el
@@ -125,13 +125,37 @@ El `.dockerignore` ya excluye `appsettings.json`, `appsettings.*.json` y `.env`.
 después de construir, antes de publicar:
 
 ```bash
-docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.0 \
-  -c "ls -la /app | grep -i appsettings; id"
+docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.3 -c '
+  find /app \( -name ".env*" -o -name "appsettings*.json" -o -path "*/Datos/*" \)
+  id
+'
 ```
 
-Debe listar únicamente `appsettings.example.json`. El `id` te devuelve el usuario no-root con el
-que corre la aplicación (en las imágenes de .NET 8 es `app`, **UID 1654**): anótalo, se usa en el
-paso 3.
+El `find` no debe imprimir **nada**. Antes se buscaba con `ls -la /app | grep -i appsettings`
+esperando ver `appsettings.example.json`, y eso ya no describe la realidad: el `.csproj` sólo
+declara `appsettings.json` como contenido —y el `.dockerignore` lo excluye—, así que en la imagen
+no queda ningún `appsettings*`. Cualquier resultado del `find` es un secreto que se coló.
+
+Lo mismo aplica a `Datos/`: el `COPY . .` sí mete los JSON de las corridas (traen `MessageId` y
+`Token` de los correos) en la etapa de compilación, pero la etapa final sólo copia `/app/publish`
+y `dotnet publish` no los incluye. Se verifica de todos modos porque agregar una entrada
+`<None Update="Datos\**">` al `.csproj` los haría llegar a la imagen sin que nadie lo note.
+
+El `id` te devuelve el usuario no-root con el que corre la aplicación (en las imágenes de .NET 8
+es `app`, **UID 1654**): anótalo, se usa en el paso 3.
+
+Conviene revisar también que no haya credenciales literales compiladas en el ensamblado ni
+correos horneados en las plantillas:
+
+```bash
+docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.3 -c '
+  grep -hoIE "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}" /app/Plantillas/*.html
+  grep -aoE "password=[^\";]*|Pwd=[^\";]*|Bearer [A-Za-z0-9_.-]{10,}" /app/notificacion-clientes.dll
+'
+```
+
+Sin salida es lo correcto: el destinatario y la cadena de conexión llegan por variables de
+entorno, nunca desde la imagen.
 
 > Si agregas la carpeta `deploy/` al `.dockerignore` evitas que estos archivos de despliegue viajen
 > dentro del contexto de construcción. No es un problema de seguridad, sólo de higiene.
@@ -152,7 +176,7 @@ una carpeta por aplicación, con todo lo suyo dentro. Aquí el contenedor se lla
 ```
 
 Todo cuelga de ahí: la configuración, el script y **las bitácoras**. Fuera de esa carpeta no hay
-nada de esta aplicación salvo las dos líneas del crontab.
+nada de esta aplicación salvo las cuatro líneas del crontab.
 
 ```bash
 sudo useradd --system --shell /usr/sbin/nologin notificaciones
@@ -170,7 +194,7 @@ sudo chmod o+x /home/docker
 
 `run.sh` deduce su carpeta base de dónde está instalado, así que si mañana el despliegue se mueve
 o la carpeta se llama distinto, el `.env` y las bitácoras lo siguen sin editar nada. Lo único que
-hay que actualizar en ese caso son las dos rutas del crontab.
+hay que actualizar en ese caso son las rutas de las cuatro líneas del crontab.
 
 ### Configuración: sólo variables de entorno
 
@@ -336,7 +360,7 @@ Cuatro cosas de esas líneas que no son decorativas:
 - **La ruta va absoluta.** El `PATH` de cron es mínimo y su directorio de trabajo es el `$HOME` del
   usuario, no el del despliegue.
 - **`%` hay que escaparlo.** Cron lo interpreta como fin de comando y salto de línea. No aparece en
-  estas dos líneas, pero muerde en cuanto alguien intenta agregarle un `date +%F` al nombre del log.
+  estas cuatro líneas, pero muerde en cuanto alguien intenta agregarle un `date +%F` al nombre del log.
 
 Verificación y operación diaria:
 

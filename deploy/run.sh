@@ -56,7 +56,7 @@ esac
 # --- Configuración -----------------------------------------------------------
 # La versión de la imagen vive aquí, NO en el crontab: así un rollback es cambiar una línea de
 # este archivo y el schedule nunca se toca.
-IMAGEN="${IMAGEN:-tonovarela/notificacion-clientes:1.0.1}"
+IMAGEN="${IMAGEN:-tonovarela/notificacion-clientes:1.0.3}"
 
 # El despliegue vive en /home/docker/<nombre-del-contenedor>, la convención del servidor: una
 # carpeta por aplicación con su .env, este script y sus bitácoras. BASE se deduce de dónde está

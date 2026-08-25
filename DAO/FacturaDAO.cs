@@ -203,7 +203,7 @@ namespace notificacion_clientes.DAO
                                                           FROM LitoCRM.dbo.v_catContactos
                                                           WHERE contactoCXP = 1 AND activo = 1) ctos
                                                    ON ctos.idClienteINT = c.ClienteINT) x ON x.ClienteINT = v.Cliente
-                            LEFT JOIN EnviosNoContestados fn ON fn.MovId = v.MovID                   
+                           LEFT JOIN EnviosNoContestados fn ON fn.MovId = v.MovID                   
                             WHERE  1=1                   
                             AND v.Mov       = 'Factura Electronica'         
                             AND fn.MovId is not null                              
@@ -224,6 +224,6 @@ namespace notificacion_clientes.DAO
         
     
     
-    
+     
     }
 }
