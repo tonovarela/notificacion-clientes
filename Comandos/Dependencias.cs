@@ -36,7 +36,8 @@ namespace notificacion_clientes.Comandos
                 : new SeguimientoDAO(settings.CadenaSqlServer);
 
             Notificacion = new NotificacionService(
-                facturaDAO, descargaService, new LectorCfdi(), settings.DiasAtrasFacturas,
+                facturaDAO, descargaService, new LectorCfdi(), 
+                
                 omitirDescargaArchivos: usaDatosPrueba);
 
             RevisionVendedor = new RevisionVendedorService(facturaDAO);

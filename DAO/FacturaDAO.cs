@@ -45,9 +45,8 @@ namespace notificacion_clientes.DAO
         /// cada uno. El tope superior deja fuera las facturas con fecha futura, que existen por
         /// captura y no deben notificarse antes de tiempo.
         /// </summary>
-        public async Task<IEnumerable<Factura>> Obtener(int diasAtras = 0)
-        {
-            Console.WriteLine($"Obteniendo facturas de los últimos {diasAtras} días...");
+        public async Task<IEnumerable<Factura>> Obtener()
+        {            
             string sql = @"SELECT
                                             v.Cliente,
                                             c.RazonSocial,
@@ -71,10 +70,9 @@ namespace notificacion_clientes.DAO
                                                 AND ctos.activo       = 1
                                         WHERE v.Mov       = 'Factura Electronica'
                                           AND v.Estatus   = 'concluido'
-                                          AND v.FechaEmision >= DATEADD(DAY, -@DiasAtras, CAST(GETDATE() AS DATE))
-                                          AND v.FechaEmision <  DATEADD(DAY, 1, CAST(GETDATE() AS DATE));";
+                                          AND v.FechaEmision >= CAST(GETDATE() AS DATE)";
             using var conexion = new SqlConnection(_sqlConexion);
-            return await conexion.QueryAsync<Factura>(sql, new { DiasAtras = diasAtras });
+            return await conexion.QueryAsync<Factura>(sql);
         }
 
 

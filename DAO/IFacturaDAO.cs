@@ -8,7 +8,7 @@ namespace notificacion_clientes.DAO
     /// </summary>
     public interface IFacturaDAO
     {
-        Task<IEnumerable<Factura>> Obtener(int diasAtras = 0);
+        Task<IEnumerable<Factura>> Obtener();
 
         Task<IEnumerable<FacturaRevisionVendedor>> ObtenerFacturasRevisionVendedores();
 

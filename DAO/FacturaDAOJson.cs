@@ -35,7 +35,7 @@ namespace notificacion_clientes.DAO
             _rutaCarpeta = rutaCarpeta;
         }
 
-        public async Task<IEnumerable<Factura>> Obtener(int diasAtras = 0) =>
+        public async Task<IEnumerable<Factura>> Obtener() =>
             await Leer<Factura>("facturas.json");
 
         public async Task<IEnumerable<FacturaRevisionVendedor>> ObtenerFacturasRevisionVendedores() =>

@@ -70,7 +70,7 @@ docker buildx create --use --name lito-builder
 # Cada versión
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t tonovarela/notificacion-clientes:1.0.3 \
+  -t tonovarela/notificacion-clientes:1.0.4 \
   -t tonovarela/notificacion-clientes:latest \
   --push .
 ```
@@ -84,7 +84,7 @@ expone el argumento `MODO_PRUEBA` para invertirlos sin editar el archivo:
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   --build-arg MODO_PRUEBA=true \
-  -t tonovarela/notificacion-clientes:1.0.3-prueba \
+  -t tonovarela/notificacion-clientes:1.0.4-prueba \
   --push .
 ```
 
@@ -103,7 +103,7 @@ servidor: el `--env-file` pisa lo que trae la imagen.
 ### Versionado
 
 Etiqueta siempre con versión semántica **además** de `latest`. En producción el schedule apunta a
-la versión fija (`:1.0.3`), nunca a `:latest`.
+la versión fija (`:1.0.4`), nunca a `:latest`.
 
 El motivo es concreto: si el schedule usa `latest` y alguien sube una imagen con un error un
 martes, el proceso de facturación del miércoles falla sin que nadie haya tocado el servidor, y el
@@ -125,7 +125,7 @@ El `.dockerignore` ya excluye `appsettings.json`, `appsettings.*.json` y `.env`.
 después de construir, antes de publicar:
 
 ```bash
-docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.3 -c '
+docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.4 -c '
   find /app \( -name ".env*" -o -name "appsettings*.json" -o -path "*/Datos/*" \)
   id
 '
@@ -148,7 +148,7 @@ Conviene revisar también que no haya credenciales literales compiladas en el en
 correos horneados en las plantillas:
 
 ```bash
-docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.3 -c '
+docker run --rm --entrypoint sh tonovarela/notificacion-clientes:1.0.4 -c '
   grep -hoIE "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}" /app/Plantillas/*.html
   grep -aoE "password=[^\";]*|Pwd=[^\";]*|Bearer [A-Za-z0-9_.-]{10,}" /app/notificacion-clientes.dll
 '
