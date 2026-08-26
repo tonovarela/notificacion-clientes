@@ -219,7 +219,6 @@ Valores que **obligatoriamente** cambian respecto al ejemplo:
 | `ConnectionStrings__SqlServer` | cadena real | El usuario necesita permisos en `Lito` y `LitoCRM`. |
 | `Bitacora__Ruta` | `/app/Logs` | Ruta absoluta: `Path.Combine` la respeta tal cual y cae en el volumen montado. |
 | `TZ` | `America/Mexico_City` | Afecta las fechas impresas en el correo. |
-| `Facturas__DiasAtras` | `0` | Días hacia atrás de la consulta de facturas. `0` = sólo las de hoy. Ampliarlo hace que una misma factura abra un envío nuevo cada día. |
 | `Seguimiento__Habilitado` | `true` para cobranza | Sin esto no se registra nada, y **el recordatorio del viernes se queda sin población**: no sale ningún correo. Exige el script SQL y el permiso de escritura. |
 | `Seguimiento__DiasVentanaMaxima` | `30` | Tope duro de cuántos días atrás se lee el buzón. Nada cierra los envíos sin contestar, así que sin él la búsqueda IMAP crece sin límite. |
 | `Imap__Usuario` / `Imap__Password` | vacíos | Vacíos = se usan los de `Smtp`. Es la misma cuenta; duplicar la credencial es cómo se desincronizan. |

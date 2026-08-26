@@ -36,14 +36,12 @@ namespace notificacion_clientes.DAO
         }
 
         /// <summary>
-        /// Facturas a notificar. <paramref name="diasAtras"/> es cuántos días hacia atrás se
-        /// incluyen: 0 = sólo las de hoy, que es lo normal.
+        /// Facturas a notificar: siempre las del día en curso, sin rango configurable.
         ///
-        /// El rango importa más de lo que parece. Con seguimiento encima, cada corrida abre un
-        /// envío por cada factura que trae; un rango de tres semanas volvería a abrir envíos por
-        /// facturas ya notificadas todos los días, y a los N días dispararía un recordatorio por
-        /// cada uno. El tope superior deja fuera las facturas con fecha futura, que existen por
-        /// captura y no deben notificarse antes de tiempo.
+        /// El rango era una variable (Facturas__DiasAtras) y dejó de serlo a propósito. Este
+        /// proceso no registra sus envíos, así que no hay forma de saber qué factura ya se
+        /// notificó: cualquier rango mayor a un día vuelve a mandar el mismo correo en la
+        /// siguiente corrida.
         /// </summary>
         public async Task<IEnumerable<Factura>> Obtener()
         {            

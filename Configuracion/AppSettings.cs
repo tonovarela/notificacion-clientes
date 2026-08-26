@@ -38,12 +38,6 @@ namespace notificacion_clientes.Configuracion
 
         public required SeguimientoSettings Seguimiento { get; init; }
 
-        /// <summary>
-        /// Cuántos días hacia atrás incluye la consulta de facturas. 0 = sólo las de hoy.
-        /// Ampliarlo hace que una misma factura se notifique en varias corridas.
-        /// </summary>
-        public required int DiasAtrasFacturas { get; init; }
-
         /// <summary>Ruta absoluta de la plantilla HTML del estado de cuenta vencido (martes).</summary>
         public required string RutaPlantillaCobranza { get; init; }
 
@@ -88,10 +82,6 @@ namespace notificacion_clientes.Configuracion
                 Imap = ImapSettings.Cargar(configuracion, smtp),
 
                 Seguimiento = SeguimientoSettings.Cargar(configuracion),
-
-                DiasAtrasFacturas = int.TryParse(configuracion["Facturas:DiasAtras"], out var diasAtras)
-                    ? diasAtras
-                    : 0,
 
                 RutaPlantilla = Path.Combine(
                     AppContext.BaseDirectory,
