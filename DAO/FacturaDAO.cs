@@ -170,7 +170,8 @@ namespace notificacion_clientes.DAO
                 AS
                 (
                 SELECT                
-                ev.MovId 
+                ev.MovId ,
+                 e.FechaEnvio 
                 FROM CorreosCXC.notif.EnvioFactura ev
                 JOIN CorreosCXC.notif.Envio e ON e.IdEnvio=ev.IdEnvio
                 AND E.Estado NOT IN ('CONTESTADO')
@@ -207,6 +208,7 @@ namespace notificacion_clientes.DAO
                             AND x.email is not null
                             --and v.Cliente= '10040'
                             --and v.MovID not in ('CFDI66501','CFDI66502')
+                            --and fn.FechaEnvio < '2026-09-04'
                             ORDER BY v.Cliente, v.Vencimiento;
                             ";
             using var conexion = new SqlConnection(_sqlConexion);
