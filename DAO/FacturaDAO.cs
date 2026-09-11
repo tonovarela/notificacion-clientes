@@ -154,7 +154,8 @@ namespace notificacion_clientes.DAO
                                 LEFT JOIN FacturasNotificaficadas fn ON fn.MovId = v.MovID                   
                             WHERE v.Mov       = 'Factura Electronica'
                             AND fn.MovId is null                              
-                            AND v.Categoria = 'VENCIDAS'    
+                            AND v.Categoria = 'VENCIDAS'   
+                            and DATEDIFF(DAY, v.Vencimiento, GETDATE()) >5 
                             --and v.Cliente= '10040'                            
                             AND x.email is not null
                             ORDER BY v.Cliente, v.Vencimiento;";
@@ -205,6 +206,7 @@ namespace notificacion_clientes.DAO
                             AND v.Mov       = 'Factura Electronica'         
                             AND fn.MovId is not null                              
                             AND v.Categoria = 'VENCIDAS'                              
+                            and DATEDIFF(DAY, v.Vencimiento, GETDATE()) >5
                             AND x.email is not null
                             --and v.Cliente= '10040'
                             --and v.MovID not in ('CFDI66501','CFDI66502')
